@@ -1,0 +1,102 @@
+#include "terraria/input/InputSystem.h"
+
+#include <SDL.h>
+
+#include <stdexcept>
+#include <string>
+
+namespace terraria::input {
+
+namespace {
+
+class SdlInputSystem final : public IInputSystem {
+public:
+    void initialize() override {
+        if ((SDL_WasInit(SDL_INIT_EVENTS) & SDL_INIT_EVENTS) == 0) {
+            if (SDL_InitSubSystem(SDL_INIT_EVENTS) != 0) {
+                throw std::runtime_error(std::string("Failed to init SDL events: ") + SDL_GetError());
+            }
+        }
+    }
+
+    void poll() override {
+        state_.moveX = 0.0F;
+        state_.hotbarSelection = -1;
+        state_.toggleCamera = false;
+        state_.camMoveX = 0.0F;
+        state_.camMoveY = 0.0F;
+        SDL_Event event{};
+        const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
+
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                quit_ = true;
+            } else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
+                quit_ = true;
+            } else if (event.type == SDL_KEYDOWN) {
+                switch (event.key.keysym.sym) {
+                case SDLK_1: state_.hotbarSelection = 0; break;
+                case SDLK_2: state_.hotbarSelection = 1; break;
+                case SDLK_3: state_.hotbarSelection = 2; break;
+                case SDLK_4: state_.hotbarSelection = 3; break;
+                case SDLK_5: state_.hotbarSelection = 4; break;
+                case SDLK_6: state_.hotbarSelection = 5; break;
+                case SDLK_7: state_.hotbarSelection = 6; break;
+                case SDLK_8: state_.hotbarSelection = 7; break;
+                default: break;
+                }
+            }
+        }
+
+        if (keyboard[SDL_SCANCODE_C]) {
+            if (!cameraPressed_) {
+                state_.toggleCamera = true;
+                cameraPressed_ = true;
+            }
+        } else {
+            cameraPressed_ = false;
+        }
+
+        if (keyboard[SDL_SCANCODE_A] || keyboard[SDL_SCANCODE_LEFT]) {
+            state_.moveX -= 1.0F;
+        }
+        if (keyboard[SDL_SCANCODE_D] || keyboard[SDL_SCANCODE_RIGHT]) {
+            state_.moveX += 1.0F;
+        }
+        state_.jump = keyboard[SDL_SCANCODE_SPACE] != 0;
+        if (keyboard[SDL_SCANCODE_UP]) {
+            state_.camMoveY -= 1.0F;
+        }
+        if (keyboard[SDL_SCANCODE_DOWN]) {
+            state_.camMoveY += 1.0F;
+        }
+        if (keyboard[SDL_SCANCODE_LEFT]) {
+            state_.camMoveX -= 1.0F;
+        }
+        if (keyboard[SDL_SCANCODE_RIGHT]) {
+            state_.camMoveX += 1.0F;
+        }
+
+        const Uint32 buttons = SDL_GetMouseState(&state_.mouseX, &state_.mouseY);
+        state_.breakHeld = (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+        state_.placeHeld = (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0;
+    }
+
+    bool shouldQuit() const override { return quit_; }
+    const InputState& state() const override { return state_; }
+
+    void shutdown() override { SDL_QuitSubSystem(SDL_INIT_EVENTS); }
+
+private:
+    InputState state_{};
+    bool quit_{false};
+    bool cameraPressed_{false};
+};
+
+} // namespace
+
+std::unique_ptr<IInputSystem> CreateSdlInputSystem() {
+    return std::make_unique<SdlInputSystem>();
+}
+
+} // namespace terraria::input
