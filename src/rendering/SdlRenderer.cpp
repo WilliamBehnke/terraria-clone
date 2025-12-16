@@ -1,23 +1,25 @@
 #include "terraria/rendering/Renderer.h"
 
 #include "terraria/core/Application.h"
+#include "terraria/entities/Tools.h"
 
 #include <SDL.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <memory>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
 namespace terraria::rendering {
 
 namespace {
 
-constexpr int kTilePixels = 8;
+constexpr int kTilePixels = 16;
 constexpr float kTwoPi = 6.28318530718F;
 
 SDL_Color TileColor(world::TileType type) {
@@ -30,10 +32,58 @@ SDL_Color TileColor(world::TileType type) {
     case world::TileType::GoldOre: return SDL_Color{252, 205, 40, 255};
     case world::TileType::Wood: return SDL_Color{120, 82, 50, 255};
     case world::TileType::Leaves: return SDL_Color{60, 180, 90, 220};
+    case world::TileType::WoodPlank: return SDL_Color{180, 130, 80, 255};
+    case world::TileType::StoneBrick: return SDL_Color{150, 125, 125, 255};
     case world::TileType::TreeTrunk: return SDL_Color{130, 90, 55, 200};
     case world::TileType::TreeLeaves: return SDL_Color{70, 190, 100, 180};
     case world::TileType::Air:
     default: return SDL_Color{0, 0, 0, 0};
+    }
+}
+
+SDL_Color ToolColor(entities::ToolKind kind, entities::ToolTier tier) {
+    switch (kind) {
+    case entities::ToolKind::Pickaxe:
+        switch (tier) {
+        case entities::ToolTier::Wood: return SDL_Color{180, 140, 90, 255};
+        case entities::ToolTier::Stone: return SDL_Color{140, 140, 160, 255};
+        case entities::ToolTier::Copper: return SDL_Color{220, 140, 80, 255};
+        case entities::ToolTier::Iron: return SDL_Color{170, 180, 200, 255};
+        case entities::ToolTier::Gold: return SDL_Color{250, 210, 80, 255};
+        default: return SDL_Color{120, 120, 120, 255};
+        }
+    case entities::ToolKind::Axe:
+        switch (tier) {
+        case entities::ToolTier::Wood: return SDL_Color{160, 110, 70, 255};
+        case entities::ToolTier::Stone: return SDL_Color{130, 130, 150, 255};
+        case entities::ToolTier::Copper: return SDL_Color{210, 130, 70, 255};
+        case entities::ToolTier::Iron: return SDL_Color{160, 170, 190, 255};
+        case entities::ToolTier::Gold: return SDL_Color{240, 200, 70, 255};
+        default: return SDL_Color{110, 110, 110, 255};
+        }
+    case entities::ToolKind::Sword:
+    default:
+        switch (tier) {
+        case entities::ToolTier::Wood: return SDL_Color{170, 120, 80, 255};
+        case entities::ToolTier::Stone: return SDL_Color{150, 150, 170, 255};
+        case entities::ToolTier::Copper: return SDL_Color{230, 150, 90, 255};
+        case entities::ToolTier::Iron: return SDL_Color{190, 200, 220, 255};
+        case entities::ToolTier::Gold: return SDL_Color{255, 215, 100, 255};
+        default: return SDL_Color{130, 130, 130, 255};
+        }
+    }
+}
+
+bool TileBlendsWithDirt(world::TileType type) {
+    switch (type) {
+    case world::TileType::Grass:
+    case world::TileType::Stone:
+    case world::TileType::CopperOre:
+    case world::TileType::IronOre:
+    case world::TileType::GoldOre:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -79,11 +129,12 @@ public:
         }
 
         SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+        loadTileTextures();
     }
 
     void render(const world::World& world,
                 const entities::Player& player,
-                const std::vector<std::unique_ptr<entities::Zombie>>& zombies,
+                const std::vector<entities::Zombie>& zombies,
                 const HudState& hud) override {
         const SDL_Color sky = SkyColor(hud);
         SDL_SetRenderDrawColor(renderer_, sky.r, sky.g, sky.b, sky.a);
@@ -114,10 +165,15 @@ public:
                     continue;
                 }
 
-                const SDL_Color color = TileColor(tile.type);
-                SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
                 SDL_Rect rect{ pixelOffsetX + x * kTilePixels, pixelOffsetY + y * kTilePixels, kTilePixels, kTilePixels };
-                SDL_RenderFillRect(renderer_, &rect);
+                if (const TileTexture* textureInfo = tileTexture(tile.type)) {
+                    SDL_Rect src = atlasRectFor(world, tile.type, startX + x, startY + y);
+                    SDL_RenderCopy(renderer_, textureInfo->texture, &src, &rect);
+                } else {
+                    const SDL_Color color = TileColor(tile.type);
+                    SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
+                    SDL_RenderFillRect(renderer_, &rect);
+                }
             }
         }
 
@@ -161,11 +217,13 @@ public:
         drawPlayer(player, startX, startY, pixelOffsetX, pixelOffsetY);
         drawStatusWidgets(hud);
         drawInventoryOverlay(player, hud);
+        drawCraftingOverlay(hud);
 
         SDL_RenderPresent(renderer_);
     }
 
     void shutdown() override {
+        destroyTileTextures();
         if (renderer_) {
             SDL_DestroyRenderer(renderer_);
             renderer_ = nullptr;
@@ -178,9 +236,15 @@ public:
     }
 
 private:
+    struct TileTexture {
+        SDL_Texture* texture{nullptr};
+    };
+
     core::AppConfig config_;
     SDL_Window* window_{nullptr};
     SDL_Renderer* renderer_{nullptr};
+    std::unordered_map<world::TileType, TileTexture> tileTextures_{};
+    std::unordered_map<world::TileType, std::unordered_map<std::string, std::vector<SDL_Rect>>> tileMaskRects_{};
 
     void drawPlayer(const entities::Player& player, int startX, int startY, int pixelOffsetX, int pixelOffsetY) {
         const float playerPixelWidth = entities::kPlayerHalfWidth * 2.0F * static_cast<float>(kTilePixels);
@@ -202,18 +266,14 @@ private:
         SDL_RenderFillRect(renderer_, &playerRect);
     }
 
-    void drawZombies(const std::vector<std::unique_ptr<entities::Zombie>>& zombies,
+    void drawZombies(const std::vector<entities::Zombie>& zombies,
                      int startX,
                      int startY,
                      int tilesWide,
                      int tilesTall,
                      int pixelOffsetX,
                      int pixelOffsetY) {
-        for (const auto& zombiePtr : zombies) {
-            if (!zombiePtr) {
-                continue;
-            }
-            const auto& zombie = *zombiePtr;
+        for (const auto& zombie : zombies) {
             const float zombieLeft = zombie.position.x - entities::kZombieHalfWidth;
             const float zombieRight = zombie.position.x + entities::kZombieHalfWidth;
             const float zombieTop = zombie.position.y - entities::kZombieHeight;
@@ -301,20 +361,19 @@ private:
         SDL_RenderFillRect(renderer_, &icon);
     }
     void drawInventoryOverlay(const entities::Player& player, const HudState& hud) {
+        (void)player;
         if (hud.hotbarCount <= 0) {
             return;
         }
 
-        const auto& inventory = player.inventory();
         const int slotWidth = 90;
         const int slotHeight = 44;
         const int margin = 10;
         int x = margin;
         const int y = config_.windowHeight - slotHeight - margin;
-
         SDL_Color textColor{220, 220, 220, 255};
         for (int slot = 0; slot < hud.hotbarCount; ++slot) {
-            const world::TileType type = hud.hotbarTypes[static_cast<std::size_t>(slot)];
+            const auto& slotData = hud.hotbarSlots[static_cast<std::size_t>(slot)];
             SDL_Rect panel{x, y, slotWidth, slotHeight};
             if (slot == hud.selectedSlot) {
                 SDL_SetRenderDrawColor(renderer_, 20, 20, 20, 230);
@@ -327,21 +386,315 @@ private:
             }
             SDL_RenderDrawRect(renderer_, &panel);
 
-            const SDL_Color tileColor = TileColor(type);
-            SDL_SetRenderDrawColor(renderer_, tileColor.r, tileColor.g, tileColor.b, tileColor.a);
-            SDL_Rect swatch{x + 6, y + 6, 28, slotHeight - 12};
-            SDL_RenderFillRect(renderer_, &swatch);
+            int count = std::max(0, slotData.count);
+            if (slotData.isTool) {
+                const SDL_Color toolColor = ToolColor(slotData.toolKind, slotData.toolTier);
+                SDL_SetRenderDrawColor(renderer_, toolColor.r, toolColor.g, toolColor.b, toolColor.a);
+                SDL_Rect swatch{x + 6, y + 6, slotWidth - 12, slotHeight - 12};
+                SDL_RenderFillRect(renderer_, &swatch);
+                char label = 'T';
+                switch (slotData.toolKind) {
+                case entities::ToolKind::Pickaxe: label = 'P'; break;
+                case entities::ToolKind::Axe: label = 'A'; break;
+                case entities::ToolKind::Sword: label = 'S'; break;
+                }
+                drawNumber(std::string(1, label), x + slotWidth / 2 - 4, y + 8, 3, SDL_Color{20, 20, 20, 230});
+            } else {
+                const SDL_Color tileColor = TileColor(slotData.tileType);
+                SDL_SetRenderDrawColor(renderer_, tileColor.r, tileColor.g, tileColor.b, tileColor.a);
+                SDL_Rect swatch{x + 6, y + 6, 28, slotHeight - 12};
+                SDL_RenderFillRect(renderer_, &swatch);
 
-            const auto index = static_cast<std::size_t>(type);
-            const int count = (index < inventory.size()) ? inventory[index] : 0;
-            const int barMaxWidth = slotWidth - 48;
-            const float ratio = std::clamp(count / 50.0F, 0.0F, 1.0F);
-            SDL_SetRenderDrawColor(renderer_, tileColor.r, tileColor.g, tileColor.b, 230);
-            SDL_Rect bar{x + 40, y + slotHeight - 12, static_cast<int>(barMaxWidth * ratio), 6};
-            SDL_RenderFillRect(renderer_, &bar);
+                const int barMaxWidth = slotWidth - 48;
+                const float ratio = std::clamp(count / 50.0F, 0.0F, 1.0F);
+                SDL_SetRenderDrawColor(renderer_, tileColor.r, tileColor.g, tileColor.b, 230);
+                SDL_Rect bar{x + 40, y + slotHeight - 12, static_cast<int>(barMaxWidth * ratio), 6};
+                SDL_RenderFillRect(renderer_, &bar);
+            }
 
-            drawNumber(std::to_string(count), x + 40, y + 10, 3, textColor);
+            drawNumber(std::to_string(count), x + slotWidth - 28, y + 10, 2, textColor);
             x += slotWidth + margin;
+        }
+    }
+
+    void drawCraftingOverlay(const HudState& hud) {
+        if (hud.craftRecipeCount <= 0) {
+            return;
+        }
+
+        const int margin = 10;
+        const int panelWidth = 210;
+        const int rowHeight = 26;
+        const int padding = 6;
+        int x = margin;
+        int y = margin + 46;
+        SDL_Color textColor{220, 220, 220, 255};
+
+        for (int i = 0; i < hud.craftRecipeCount && i < kMaxCraftRecipes; ++i) {
+            const auto& entry = hud.craftRecipes[static_cast<std::size_t>(i)];
+            SDL_Rect row{x, y, panelWidth, rowHeight};
+            if (i == hud.craftSelection) {
+                SDL_SetRenderDrawColor(renderer_, 40, 40, 50, 230);
+            } else {
+                SDL_SetRenderDrawColor(renderer_, 15, 15, 20, 200);
+            }
+            SDL_RenderFillRect(renderer_, &row);
+            if (entry.canCraft) {
+                SDL_SetRenderDrawColor(renderer_, 90, 200, 130, 255);
+            } else {
+                SDL_SetRenderDrawColor(renderer_, 70, 70, 70, 255);
+            }
+            SDL_RenderDrawRect(renderer_, &row);
+
+            const SDL_Color outputColor =
+                entry.outputIsTool ? ToolColor(entry.toolKind, entry.toolTier) : TileColor(entry.outputType);
+            SDL_SetRenderDrawColor(renderer_, outputColor.r, outputColor.g, outputColor.b, outputColor.a);
+            SDL_Rect outputRect{x + padding, y + padding, 16, rowHeight - padding * 2};
+            SDL_RenderFillRect(renderer_, &outputRect);
+            if (entry.outputIsTool) {
+                char label = 'T';
+                switch (entry.toolKind) {
+                case entities::ToolKind::Pickaxe: label = 'P'; break;
+                case entities::ToolKind::Axe: label = 'A'; break;
+                case entities::ToolKind::Sword: label = 'S'; break;
+                }
+                drawNumber(std::string(1, label), x + padding + 4, y + 6, 2, SDL_Color{20, 20, 20, 230});
+            } else {
+                drawNumber(std::to_string(std::max(0, entry.outputCount)), x + padding + 20, y + 6, 2, textColor);
+            }
+
+            int ingredientX = x + 80;
+        for (int ing = 0; ing < entry.ingredientCount && ing < 2; ++ing) {
+            const SDL_Color ingredientColor = TileColor(entry.ingredientTypes[static_cast<std::size_t>(ing)]);
+            SDL_SetRenderDrawColor(renderer_, ingredientColor.r, ingredientColor.g, ingredientColor.b, ingredientColor.a);
+            SDL_Rect ingRect{ingredientX, y + padding, 14, rowHeight - padding * 2};
+            SDL_RenderFillRect(renderer_, &ingRect);
+                drawNumber(std::to_string(std::max(0, entry.ingredientCounts[static_cast<std::size_t>(ing)])),
+                           ingredientX + 18,
+                           y + 6,
+                           2,
+                           textColor);
+                ingredientX += 70;
+            }
+
+            y += rowHeight + 4;
+        }
+    }
+
+    const TileTexture* tileTexture(world::TileType type) const {
+        const auto it = tileTextures_.find(type);
+        return it != tileTextures_.end() ? &it->second : nullptr;
+    }
+
+    SDL_Rect atlasRectFor(const world::World& world, world::TileType type, int tileX, int tileY) const {
+        auto neighborCode = [&](int x, int y) -> char {
+            if (x < 0 || y < 0 || x >= world.width() || y >= world.height()) {
+                return '0';
+            }
+            const auto& neighbor = world.tile(x, y);
+            if (!neighbor.active) {
+                return '0';
+            }
+            const bool selfIsDirt = type == world::TileType::Dirt;
+            if (selfIsDirt) {
+                if (neighbor.type == world::TileType::Dirt || TileBlendsWithDirt(neighbor.type)) {
+                    return 'x';
+                }
+                return '0';
+            }
+
+            const bool neighborIsDirt = neighbor.type == world::TileType::Dirt;
+            if (neighbor.type == type) {
+                return 'x';
+            }
+            if (neighborIsDirt && TileBlendsWithDirt(type)) {
+                return 'd';
+            }
+
+            return '0';
+        };
+
+        std::string pattern(4, '0');
+        pattern[0] = neighborCode(tileX, tileY - 1);
+        pattern[1] = neighborCode(tileX + 1, tileY);
+        pattern[2] = neighborCode(tileX, tileY + 1);
+        pattern[3] = neighborCode(tileX - 1, tileY);
+
+        std::vector<std::string> candidatePatterns;
+        candidatePatterns.push_back(pattern);
+
+        const bool containsDirt = pattern.find('d') != std::string::npos;
+        const bool treatDirtAsSame = (type == world::TileType::Dirt);
+        if (containsDirt && treatDirtAsSame) {
+            auto asSame = pattern;
+            for (char& c : asSame) {
+                if (c == 'd') {
+                    c = 'x';
+                }
+            }
+            candidatePatterns.push_back(asSame);
+        }
+        if (containsDirt) {
+            auto asAir = pattern;
+            for (char& c : asAir) {
+                if (c == 'd') {
+                    c = '0';
+                }
+            }
+            candidatePatterns.push_back(asAir);
+        }
+
+        const auto typeMaskIt = tileMaskRects_.find(type);
+        if (typeMaskIt != tileMaskRects_.end()) {
+            const auto& patternMap = typeMaskIt->second;
+            const std::size_t base = static_cast<std::size_t>((tileX * 73856093) ^ (tileY * 19349663));
+            for (const auto& key : candidatePatterns) {
+                const auto rectIt = patternMap.find(key);
+                if (rectIt == patternMap.end() || rectIt->second.empty()) {
+                    continue;
+                }
+                const std::size_t idx = base % rectIt->second.size();
+                return rectIt->second[idx];
+            }
+        }
+
+        return SDL_Rect{0, 0, kTilePixels, kTilePixels};
+    }
+
+    SDL_Texture* loadTilesetTexture(const std::filesystem::path& path) {
+        SDL_Surface* surface = SDL_LoadBMP(path.string().c_str());
+        if (!surface) {
+            SDL_Log("Failed to load %s: %s", path.string().c_str(), SDL_GetError());
+            return nullptr;
+        }
+        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
+        SDL_FreeSurface(surface);
+        if (!texture) {
+            SDL_Log("Failed to create texture for %s: %s", path.string().c_str(), SDL_GetError());
+        }
+        return texture;
+    }
+
+    void loadTileTextures() {
+        destroyTileTextures();
+        const std::filesystem::path basePath = std::filesystem::path("graphics") / "tiles";
+        if (!std::filesystem::exists(basePath)) {
+            SDL_Log("Tile directory missing: %s", basePath.string().c_str());
+            return;
+        }
+
+        struct TileEntry {
+            world::TileType type;
+            const char* filename;
+        };
+
+        const std::array<TileEntry, 6> entries{{
+            {world::TileType::Dirt, "dirt.bmp"},
+            {world::TileType::Stone, "stone.bmp"},
+            {world::TileType::Grass, "grass.bmp"},
+            {world::TileType::CopperOre, "copper.bmp"},
+            {world::TileType::IronOre, "iron.bmp"},
+            {world::TileType::GoldOre, "gold.bmp"},
+        }};
+
+        for (const auto& entry : entries) {
+            const auto texturePath = basePath / entry.filename;
+            if (!std::filesystem::exists(texturePath)) {
+                SDL_Log("Missing tile texture %s", texturePath.string().c_str());
+                continue;
+            }
+            if (SDL_Texture* texture = loadTilesetTexture(texturePath)) {
+                tileTextures_[entry.type] = TileTexture{texture};
+                tileMaskRects_[entry.type] = buildDefaultMaskRects();
+            }
+        }
+    }
+
+    void destroyTileTextures() {
+        for (auto& pair : tileTextures_) {
+            if (pair.second.texture) {
+                SDL_DestroyTexture(pair.second.texture);
+            }
+        }
+        tileTextures_.clear();
+        tileMaskRects_.clear();
+    }
+
+    std::unordered_map<std::string, std::vector<SDL_Rect>> buildDefaultMaskRects() const {
+        static const std::array<std::array<const char*, 16>, 15> layout{{
+            {"xxx0", "0xxx", "0xxx", "0xxx", "x0xx", "x0x0", "00x0", "00x0", "00x0", "0x00", "_", "_", "000x", "0xdx", "0xdx", "0xdx"},
+            {"xxx0", "xxxx", "xxxx", "xxxx", "x0xx", "x0x0", "_", "_", "_", "0x00", "_", "_", "000x", "dx0x", "dx0x", "dx0x"},
+            {"xxx0", "xx0x", "xx0x", "xx0x", "x0xx", "x0x0", "_", "_", "_", "0x00", "_", "_", "000x", "xdx0", "xdx0", "xdx0"},
+            {"0xx0", "00xx", "0xx0", "00xx", "0xx0", "00xx", "x000", "x000", "x000", "0000", "0000", "0000", "", "x0xd", "x0xd", "x0xd"},
+            {"xx00", "x00x", "xx00", "x00x", "xx00", "x00x", "0x0x", "0x0x", "0x0x", "", "", "", "", "", "", ""},
+            {"_", "_", "dxxd", "ddxx", "xxd0", "x0dx", "00d0", "x0d0", "xxdx", "xxdx", "xxdx", "ddxd", "dxdd", "", "", ""},
+            {"_", "_", "xxdd", "xddx", "xxd0", "x0dx", "00d0", "x0d0", "dxxx", "dxxx", "dxxx", "ddxd", "dxdd", "", "", ""},
+            {"_", "_", "dxxd", "ddxx", "xxd0", "x0dx", "00d0", "x0d0", "xdxx", "xxxd", "xdxd", "ddxd", "dxdd", "", "", ""},
+            {"_", "_", "xxdd", "xddx", "dxx0", "d0xx", "d000", "d0x0", "xdxx", "xxxd", "xdxd", "xddd", "dddx", "", "", ""},
+            {"_", "_", "dxxd", "ddxx", "dxx0", "d0xx", "d000", "d0x0", "xdxx", "xxxd", "xdxd", "xddd", "dddx", "", "", ""},
+            {"_", "_", "xxdd", "xddx", "dxx0", "d0xx", "d000", "d0x0", "dxdx", "dxdx", "dxdx", "xddd", "dddx", "", "", ""},
+            {"0xxd", "0xxd", "0xxd", "0dxx", "0dxx", "0dxx", "dddd", "dddd", "dddd", "0d0d", "0d0d", "0d0d", "", "", "", ""},
+            {"xx0d", "xx0d", "xx0d", "xd0x", "xd0x", "xd0x", "d0d0", "", "", "", "", "", "", "", "", ""},
+            {"000d", "000d", "000d", "0d00", "0d00", "0d00", "d0d0", "", "", "", "", "", "", "", "", ""},
+            {"0x0d", "0x0d", "0x0d", "0d0x", "0d0x", "0d0x", "d0d0", "", "", "", "", "", "", "", "", "_"}
+        }};
+
+        std::unordered_map<std::string, std::vector<SDL_Rect>> rects;
+        for (std::size_t row = 0; row < layout.size(); ++row) {
+            for (std::size_t col = 0; col < layout[row].size(); ++col) {
+                const char* entry = layout[row][col];
+                if (!entry || entry[0] == '_') {
+                    continue;
+                }
+                SDL_Rect rect{
+                    static_cast<int>(col) * kTilePixels,
+                    static_cast<int>(row) * kTilePixels,
+                    kTilePixels,
+                    kTilePixels
+                };
+                rects[entry].push_back(rect);
+            }
+        }
+
+        return rects;
+    }
+
+    void drawLetterGlyph(char c, int x, int y, int scale, SDL_Color color) {
+        const char* pattern[5]{};
+        switch (c) {
+        case 'P':
+            pattern[0] = "111";
+            pattern[1] = "101";
+            pattern[2] = "111";
+            pattern[3] = "100";
+            pattern[4] = "100";
+            break;
+        case 'A':
+            pattern[0] = "111";
+            pattern[1] = "101";
+            pattern[2] = "111";
+            pattern[3] = "101";
+            pattern[4] = "101";
+            break;
+        case 'S':
+            pattern[0] = "111";
+            pattern[1] = "100";
+            pattern[2] = "111";
+            pattern[3] = "001";
+            pattern[4] = "111";
+            break;
+        default:
+            return;
+        }
+
+        SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
+        for (int row = 0; row < 5; ++row) {
+            for (int col = 0; col < 3; ++col) {
+                if (pattern[row][col] == '1') {
+                    SDL_Rect rect{x + col * scale, y + row * scale, scale, scale};
+                    SDL_RenderFillRect(renderer_, &rect);
+                }
+            }
         }
     }
 
@@ -350,6 +703,9 @@ private:
         for (char c : text) {
             if (c == '-') {
                 drawDash(cursorX, y + 2 * scale, scale, color);
+                cursorX += 4 * scale;
+            } else if (c == 'P' || c == 'A' || c == 'S') {
+                drawLetterGlyph(c, cursorX, y, scale, color);
                 cursorX += 4 * scale;
             } else {
                 drawDigit(c, cursorX, y, scale, color);
@@ -397,6 +753,7 @@ private:
             }
         }
     }
+
 };
 
 } // namespace

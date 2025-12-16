@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <random>
 
@@ -13,7 +14,7 @@ namespace {
 constexpr float kGravity = 60.0F;
 constexpr float kJumpVelocity = 25.0F;
 constexpr float kCollisionEpsilon = 0.001F;
-constexpr float kTilePixels = 8.0F;
+constexpr float kTilePixels = 16.0F;
 constexpr float kBreakRange = 6.0F;
 constexpr float kPlaceRange = 6.0F;
 constexpr float kZombieMoveSpeed = 6.0F;
@@ -29,6 +30,33 @@ constexpr float kDayLengthSeconds = 180.0F;
 constexpr float kNightStart = 0.55F;
 constexpr float kNightEnd = 0.95F;
 
+entities::ToolTier RequiredPickaxeTier(world::TileType type) {
+    using entities::ToolTier;
+    switch (type) {
+    case world::TileType::Stone: return ToolTier::Wood;
+    case world::TileType::CopperOre: return ToolTier::Stone;
+    case world::TileType::IronOre: return ToolTier::Copper;
+    case world::TileType::GoldOre: return ToolTier::Iron;
+    default: return ToolTier::None;
+    }
+}
+
+float PickaxeSpeedBonus(entities::ToolTier tier) {
+    const int value = entities::ToolTierValue(tier);
+    if (value <= 0) {
+        return 1.0F;
+    }
+    return 1.0F + 0.2F * static_cast<float>(value);
+}
+
+int SwordDamageForTier(entities::ToolTier tier) {
+    const int value = entities::ToolTierValue(tier);
+    if (value <= 0) {
+        return kPlayerAttackDamage;
+    }
+    return kPlayerAttackDamage + value * 6;
+}
+
 } // namespace
 
 Game::Game(const core::AppConfig& config)
@@ -39,7 +67,89 @@ Game::Game(const core::AppConfig& config)
       renderer_{rendering::CreateSdlRenderer(config_)},
       inputSystem_{input::CreateSdlInputSystem()},
       zombieRng_{static_cast<std::uint32_t>(config.worldWidth * 131 + config.worldHeight * 977)},
-      dayLength_{kDayLengthSeconds} {}
+      dayLength_{kDayLengthSeconds} {
+    craftingRecipes_.reserve(32);
+    const auto addTileRecipe = [&](world::TileType output, int count, std::initializer_list<CraftIngredient> ingredients) {
+        CraftingRecipe recipe{};
+        recipe.output = output;
+        recipe.outputCount = count;
+        recipe.ingredientCount = static_cast<int>(ingredients.size());
+        int idx = 0;
+        for (const auto& ingredient : ingredients) {
+            if (idx >= static_cast<int>(recipe.ingredients.size())) {
+                break;
+            }
+            recipe.ingredients[static_cast<std::size_t>(idx++)] = ingredient;
+        }
+        craftingRecipes_.push_back(recipe);
+    };
+
+    const auto addToolRecipe = [&](entities::ToolKind kind,
+                                   entities::ToolTier tier,
+                                   std::initializer_list<CraftIngredient> ingredients) {
+        CraftingRecipe recipe{};
+        recipe.outputIsTool = true;
+        recipe.toolKind = kind;
+        recipe.toolTier = tier;
+        recipe.outputCount = 1;
+        recipe.ingredientCount = static_cast<int>(ingredients.size());
+        int idx = 0;
+        for (const auto& ingredient : ingredients) {
+            if (idx >= static_cast<int>(recipe.ingredients.size())) {
+                break;
+            }
+            recipe.ingredients[static_cast<std::size_t>(idx++)] = ingredient;
+        }
+        craftingRecipes_.push_back(recipe);
+    };
+
+    addTileRecipe(world::TileType::WoodPlank, 1, {CraftIngredient{world::TileType::Wood, 4}});
+    addTileRecipe(world::TileType::StoneBrick, 1, {CraftIngredient{world::TileType::Stone, 4}});
+
+    addToolRecipe(entities::ToolKind::Pickaxe, entities::ToolTier::Wood, {CraftIngredient{world::TileType::Wood, 8}});
+    addToolRecipe(entities::ToolKind::Axe, entities::ToolTier::Wood, {CraftIngredient{world::TileType::Wood, 6}});
+    addToolRecipe(entities::ToolKind::Sword, entities::ToolTier::Wood, {CraftIngredient{world::TileType::Wood, 7}});
+
+    addToolRecipe(entities::ToolKind::Pickaxe,
+                  entities::ToolTier::Stone,
+                  {CraftIngredient{world::TileType::Stone, 10}, CraftIngredient{world::TileType::Wood, 2}});
+    addToolRecipe(entities::ToolKind::Axe,
+                  entities::ToolTier::Stone,
+                  {CraftIngredient{world::TileType::Stone, 8}, CraftIngredient{world::TileType::Wood, 2}});
+    addToolRecipe(entities::ToolKind::Sword,
+                  entities::ToolTier::Stone,
+                  {CraftIngredient{world::TileType::Stone, 9}, CraftIngredient{world::TileType::Wood, 2}});
+
+    addToolRecipe(entities::ToolKind::Pickaxe,
+                  entities::ToolTier::Copper,
+                  {CraftIngredient{world::TileType::CopperOre, 10}, CraftIngredient{world::TileType::Wood, 2}});
+    addToolRecipe(entities::ToolKind::Axe,
+                  entities::ToolTier::Copper,
+                  {CraftIngredient{world::TileType::CopperOre, 8}, CraftIngredient{world::TileType::Wood, 2}});
+    addToolRecipe(entities::ToolKind::Sword,
+                  entities::ToolTier::Copper,
+                  {CraftIngredient{world::TileType::CopperOre, 9}, CraftIngredient{world::TileType::Wood, 2}});
+
+    addToolRecipe(entities::ToolKind::Pickaxe,
+                  entities::ToolTier::Iron,
+                  {CraftIngredient{world::TileType::IronOre, 12}, CraftIngredient{world::TileType::Wood, 2}});
+    addToolRecipe(entities::ToolKind::Axe,
+                  entities::ToolTier::Iron,
+                  {CraftIngredient{world::TileType::IronOre, 10}, CraftIngredient{world::TileType::Wood, 2}});
+    addToolRecipe(entities::ToolKind::Sword,
+                  entities::ToolTier::Iron,
+                  {CraftIngredient{world::TileType::IronOre, 11}, CraftIngredient{world::TileType::Wood, 2}});
+
+    addToolRecipe(entities::ToolKind::Pickaxe,
+                  entities::ToolTier::Gold,
+                  {CraftIngredient{world::TileType::GoldOre, 14}, CraftIngredient{world::TileType::Wood, 2}});
+    addToolRecipe(entities::ToolKind::Axe,
+                  entities::ToolTier::Gold,
+                  {CraftIngredient{world::TileType::GoldOre, 12}, CraftIngredient{world::TileType::Wood, 2}});
+    addToolRecipe(entities::ToolKind::Sword,
+                  entities::ToolTier::Gold,
+                  {CraftIngredient{world::TileType::GoldOre, 12}, CraftIngredient{world::TileType::Wood, 2}});
+}
 
 void Game::initialize() {
     generator_.generate(world_);
@@ -57,9 +167,8 @@ void Game::initialize() {
     player_.resetHealth();
     std::uniform_real_distribution<float> timerDist(kZombieSpawnIntervalMin, kZombieSpawnIntervalMax);
     zombieSpawnTimer_ = timerDist(zombieRng_);
-    const float initialNight = (kNightStart + kNightEnd) * 0.5F;
-    timeOfDay_ = dayLength_ * initialNight;
-    isNight_ = true;
+    timeOfDay_ = kNightEnd;
+    isNight_ = false;
 
     renderer_->initialize();
     inputSystem_->initialize();
@@ -103,10 +212,20 @@ void Game::handleInput() {
     }
 
     const int selection = inputSystem_->state().hotbarSelection;
-    if (selection >= 0 && selection < static_cast<int>(hotbarTypes_.size())) {
+    if (selection >= 0 && selection < entities::kHotbarSlots) {
         selectedHotbar_ = selection;
     }
-    selectedHotbar_ = std::clamp(selectedHotbar_, 0, static_cast<int>(hotbarTypes_.size()) - 1);
+    selectedHotbar_ = std::clamp(selectedHotbar_, 0, entities::kHotbarSlots - 1);
+
+    const int recipeCount = static_cast<int>(craftingRecipes_.size());
+    if (recipeCount > 0) {
+        if (inputSystem_->state().craftPrev) {
+            craftSelection_ = (craftSelection_ - 1 + recipeCount) % recipeCount;
+        }
+        if (inputSystem_->state().craftNext) {
+            craftSelection_ = (craftSelection_ + 1) % recipeCount;
+        }
+    }
 }
 
 void Game::update(float dt) {
@@ -255,6 +374,7 @@ void Game::resolveVerticalAabb(entities::Vec2& position,
 void Game::processActions(float dt) {
     handleBreaking(dt);
     handlePlacement(dt);
+    handleCrafting(dt);
 }
 
 bool Game::cursorWorldTile(int& outX, int& outY) const {
@@ -316,6 +436,9 @@ bool Game::cursorWorldTile(int& outX, int& outY) const {
 }
 
 bool Game::canBreakTile(int tileX, int tileY) const {
+    if (tileX < 0 || tileX >= world_.width() || tileY < 0 || tileY >= world_.height()) {
+        return false;
+    }
     const auto& tile = world_.tile(tileX, tileY);
     if (!tile.active || tile.type == world::TileType::Air) {
         return false;
@@ -384,12 +507,18 @@ void Game::handleBreaking(float dt) {
         breakState_ = {true, tileX, tileY, 0.0F};
     }
 
-    breakState_.progress += dt * 2.5F;
+    auto& target = world_.tile(tileX, tileY);
+    if (!hasRequiredPickaxe(target.type)) {
+        breakState_ = {};
+        return;
+    }
+
+    const float speed = breakSpeedMultiplier(target.type);
+    breakState_.progress += dt * 2.5F * speed;
     if (breakState_.progress < 1.0F) {
         return;
     }
 
-    auto& target = world_.tile(tileX, tileY);
     const world::TileType type = target.type;
     world::TileType dropType = type;
     switch (type) {
@@ -422,12 +551,124 @@ void Game::handlePlacement(float dt) {
         return;
     }
 
-    const world::TileType type = hotbarTypes_[static_cast<std::size_t>(selectedHotbar_)];
-    if (!player_.removeFromInventory(type)) {
+    const auto& slots = player_.hotbar();
+    if (selectedHotbar_ < 0 || selectedHotbar_ >= entities::kHotbarSlots) {
         return;
     }
+    const auto& slot = slots[static_cast<std::size_t>(selectedHotbar_)];
+    if (!slot.isBlock()) {
+        return;
+    }
+    const world::TileType type = slot.blockType;
     world_.tile(tileX, tileY) = {type, true};
+    player_.consumeSlot(selectedHotbar_, 1);
     placeCooldown_ = 0.2F;
+}
+
+void Game::handleCrafting(float dt) {
+    craftCooldown_ = std::max(0.0F, craftCooldown_ - dt);
+    const int recipeCount = static_cast<int>(craftingRecipes_.size());
+    if (recipeCount <= 0) {
+        return;
+    }
+    craftSelection_ = std::clamp(craftSelection_, 0, recipeCount - 1);
+    if (inputSystem_->state().craftExecute && craftCooldown_ <= 0.0F) {
+        if (tryCraft(craftingRecipes_[static_cast<std::size_t>(craftSelection_)])) {
+            craftCooldown_ = 0.25F;
+        }
+    }
+}
+
+bool Game::canCraft(const CraftingRecipe& recipe) const {
+    for (int i = 0; i < recipe.ingredientCount; ++i) {
+        const auto& ingredient = recipe.ingredients[static_cast<std::size_t>(i)];
+        if (player_.inventoryCount(ingredient.type) < ingredient.count) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Game::tryCraft(const CraftingRecipe& recipe) {
+    if (!canCraft(recipe)) {
+        return false;
+    }
+    const auto canStoreTile = [&](world::TileType type) {
+        for (const auto& slot : player_.hotbar()) {
+            if ((slot.isBlock() && slot.blockType == type) || slot.empty()) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto canStoreTool = [&](entities::ToolKind kind, entities::ToolTier tier) {
+        for (const auto& slot : player_.hotbar()) {
+            if (slot.empty()) {
+                return true;
+            }
+            if (slot.isTool() && slot.toolKind == kind && slot.toolTier == tier) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (recipe.outputIsTool) {
+        if (!canStoreTool(recipe.toolKind, recipe.toolTier)) {
+            return false;
+        }
+    } else if (!canStoreTile(recipe.output)) {
+        return false;
+    }
+
+    for (int i = 0; i < recipe.ingredientCount; ++i) {
+        const auto& ingredient = recipe.ingredients[static_cast<std::size_t>(i)];
+        player_.consumeFromInventory(ingredient.type, ingredient.count);
+    }
+    if (recipe.outputIsTool) {
+        return player_.addTool(recipe.toolKind, recipe.toolTier);
+    }
+
+    bool success = true;
+    for (int i = 0; i < recipe.outputCount; ++i) {
+        if (!player_.addToInventory(recipe.output)) {
+            success = false;
+        }
+    }
+    return success;
+}
+
+entities::ToolTier Game::selectedToolTier(entities::ToolKind kind) const {
+    if (selectedHotbar_ < 0 || selectedHotbar_ >= entities::kHotbarSlots) {
+        return entities::ToolTier::None;
+    }
+    const auto& slot = player_.hotbar()[static_cast<std::size_t>(selectedHotbar_)];
+    if (slot.isTool() && slot.toolKind == kind) {
+        return slot.toolTier;
+    }
+    return entities::ToolTier::None;
+}
+
+bool Game::hasRequiredPickaxe(world::TileType tileType) const {
+    const entities::ToolTier required = RequiredPickaxeTier(tileType);
+    if (required == entities::ToolTier::None) {
+        return true;
+    }
+    const int equippedValue = entities::ToolTierValue(selectedToolTier(entities::ToolKind::Pickaxe));
+    return equippedValue >= entities::ToolTierValue(required);
+}
+
+int Game::activeSwordDamage() const {
+    return SwordDamageForTier(selectedToolTier(entities::ToolKind::Sword));
+}
+
+float Game::breakSpeedMultiplier(world::TileType tileType) const {
+    (void)tileType;
+    const entities::ToolTier pickTier = selectedToolTier(entities::ToolKind::Pickaxe);
+    if (entities::ToolTierValue(pickTier) <= 0) {
+        return 1.0F;
+    }
+    return PickaxeSpeedBonus(pickTier);
 }
 
 void Game::updateZombies(float dt) {
@@ -443,11 +684,10 @@ void Game::updateZombies(float dt) {
         zombieSpawnTimer_ = 0.0F;
     }
 
-    for (auto& ptr : zombies_) {
-        if (!ptr) {
+    for (auto& zombie : zombies_) {
+        if (!zombie.alive()) {
             continue;
         }
-        auto& zombie = *ptr;
         zombie.attackCooldown = std::max(0.0F, zombie.attackCooldown - dt);
         applyZombiePhysics(zombie, dt);
         if (zombiesOverlapPlayer(zombie) && zombie.attackCooldown <= 0.0F) {
@@ -457,11 +697,7 @@ void Game::updateZombies(float dt) {
     }
 
     zombies_.erase(
-        std::remove_if(zombies_.begin(),
-                       zombies_.end(),
-                       [](const std::unique_ptr<entities::Zombie>& zombie) {
-                           return !zombie || !zombie->alive();
-                       }),
+        std::remove_if(zombies_.begin(), zombies_.end(), [](const entities::Zombie& zombie) { return !zombie.alive(); }),
         zombies_.end());
 }
 
@@ -535,7 +771,7 @@ void Game::spawnZombie() {
         return;
     }
 
-    zombies_.push_back(std::make_unique<entities::Zombie>(zombie));
+    zombies_.push_back(zombie);
 }
 
 bool Game::attackZombiesAtCursor() {
@@ -544,16 +780,14 @@ bool Game::attackZombiesAtCursor() {
     if (!cursorWorldTile(tileX, tileY)) {
         return false;
     }
+    const int damage = activeSwordDamage();
 
-    for (auto& zombiePtr : zombies_) {
-        if (!zombiePtr) {
+    for (auto& zombie : zombies_) {
+        if (!zombie.alive()) {
             continue;
         }
-        if (!zombiePtr->alive()) {
-            continue;
-        }
-        if (cursorHitsZombie(*zombiePtr, tileX, tileY)) {
-            zombiePtr->takeDamage(kPlayerAttackDamage);
+        if (cursorHitsZombie(zombie, tileX, tileY)) {
+            zombie.takeDamage(damage);
             return true;
         }
     }
@@ -616,9 +850,25 @@ float Game::normalizedTimeOfDay() const {
 
 void Game::updateHudState() {
     hudState_.selectedSlot = selectedHotbar_;
-    hudState_.hotbarCount = static_cast<int>(hotbarTypes_.size());
+    const auto& slots = player_.hotbar();
+    hudState_.hotbarCount = std::min(rendering::kMaxHotbarSlots, entities::kHotbarSlots);
     for (int i = 0; i < hudState_.hotbarCount; ++i) {
-        hudState_.hotbarTypes[static_cast<std::size_t>(i)] = hotbarTypes_[static_cast<std::size_t>(i)];
+        const auto& slot = slots[static_cast<std::size_t>(i)];
+        auto& hudSlot = hudState_.hotbarSlots[static_cast<std::size_t>(i)];
+        hudSlot = {};
+        if (slot.isTool()) {
+            hudSlot.isTool = true;
+            hudSlot.toolKind = slot.toolKind;
+            hudSlot.toolTier = slot.toolTier;
+            hudSlot.count = slot.count;
+        } else if (slot.isBlock()) {
+            hudSlot.isTool = false;
+            hudSlot.tileType = slot.blockType;
+            hudSlot.count = slot.count;
+        }
+    }
+    for (int i = hudState_.hotbarCount; i < rendering::kMaxHotbarSlots; ++i) {
+        hudState_.hotbarSlots[static_cast<std::size_t>(i)] = {};
     }
     if (breakState_.active) {
         hudState_.breakActive = true;
@@ -656,6 +906,32 @@ void Game::updateHudState() {
     hudState_.zombieCount = static_cast<int>(zombies_.size());
     hudState_.dayProgress = normalizedTimeOfDay();
     hudState_.isNight = isNight_;
+    hudState_.craftRecipeCount = std::min(static_cast<int>(craftingRecipes_.size()), rendering::kMaxCraftRecipes);
+    if (hudState_.craftRecipeCount > 0) {
+        craftSelection_ = std::clamp(craftSelection_, 0, hudState_.craftRecipeCount - 1);
+        hudState_.craftSelection = craftSelection_;
+        for (int i = 0; i < hudState_.craftRecipeCount; ++i) {
+            const auto& recipe = craftingRecipes_[static_cast<std::size_t>(i)];
+            auto& entry = hudState_.craftRecipes[static_cast<std::size_t>(i)];
+            entry = {};
+            entry.outputIsTool = recipe.outputIsTool;
+            entry.outputType = recipe.output;
+            entry.outputCount = recipe.outputCount;
+            entry.toolKind = recipe.toolKind;
+            entry.toolTier = recipe.toolTier;
+            entry.ingredientCount = recipe.ingredientCount;
+            for (int ing = 0; ing < recipe.ingredientCount; ++ing) {
+                entry.ingredientTypes[static_cast<std::size_t>(ing)] = recipe.ingredients[static_cast<std::size_t>(ing)].type;
+                entry.ingredientCounts[static_cast<std::size_t>(ing)] = recipe.ingredients[static_cast<std::size_t>(ing)].count;
+            }
+            entry.canCraft = canCraft(recipe);
+        }
+    } else {
+        hudState_.craftSelection = 0;
+    }
+    for (int i = hudState_.craftRecipeCount; i < rendering::kMaxCraftRecipes; ++i) {
+        hudState_.craftRecipes[static_cast<std::size_t>(i)] = {};
+    }
 }
 
 void Game::toggleCameraMode() {

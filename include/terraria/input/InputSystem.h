@@ -15,6 +15,9 @@ struct InputState {
     int mouseX{0};
     int mouseY{0};
     int hotbarSelection{-1};
+    bool craftPrev{false};
+    bool craftNext{false};
+    bool craftExecute{false};
 };
 
 class IInputSystem {

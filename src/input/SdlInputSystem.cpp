@@ -25,6 +25,9 @@ public:
         state_.toggleCamera = false;
         state_.camMoveX = 0.0F;
         state_.camMoveY = 0.0F;
+        state_.craftPrev = false;
+        state_.craftNext = false;
+        state_.craftExecute = false;
         SDL_Event event{};
         const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
 
@@ -43,6 +46,11 @@ public:
                 case SDLK_6: state_.hotbarSelection = 5; break;
                 case SDLK_7: state_.hotbarSelection = 6; break;
                 case SDLK_8: state_.hotbarSelection = 7; break;
+                case SDLK_9: state_.hotbarSelection = 8; break;
+                case SDLK_0: state_.hotbarSelection = 9; break;
+                case SDLK_LEFTBRACKET: state_.craftPrev = true; break;
+                case SDLK_RIGHTBRACKET: state_.craftNext = true; break;
+                case SDLK_f: state_.craftExecute = true; break;
                 default: break;
                 }
             }

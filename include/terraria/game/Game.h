@@ -2,6 +2,7 @@
 
 #include "terraria/core/Application.h"
 #include "terraria/entities/Player.h"
+#include "terraria/entities/Tools.h"
 #include "terraria/entities/Zombie.h"
 #include "terraria/input/InputSystem.h"
 #include "terraria/rendering/Renderer.h"
@@ -9,7 +10,6 @@
 #include "terraria/world/WorldGenerator.h"
 
 #include <array>
-#include <memory>
 #include <random>
 #include <vector>
 
@@ -24,6 +24,21 @@ public:
     void shutdown();
 
 private:
+    struct CraftIngredient {
+        world::TileType type{world::TileType::Air};
+        int count{0};
+    };
+
+    struct CraftingRecipe {
+        bool outputIsTool{false};
+        world::TileType output{world::TileType::Air};
+        entities::ToolKind toolKind{entities::ToolKind::Pickaxe};
+        entities::ToolTier toolTier{entities::ToolTier::None};
+        int outputCount{0};
+        std::array<CraftIngredient, 2> ingredients{};
+        int ingredientCount{0};
+    };
+
     void handleInput();
     void update(float dt);
     void render();
@@ -42,6 +57,7 @@ private:
     bool tileInsidePlayer(int tileX, int tileY) const;
     void handleBreaking(float dt);
     void handlePlacement(float dt);
+    void handleCrafting(float dt);
     void updateHudState();
     void toggleCameraMode();
     entities::Vec2 cameraFocus() const;
@@ -57,6 +73,12 @@ private:
                      const entities::Vec2& bPos, float bHalfWidth, float bHeight) const;
     void updateDayNight(float dt);
     float normalizedTimeOfDay() const;
+    bool tryCraft(const CraftingRecipe& recipe);
+    bool canCraft(const CraftingRecipe& recipe) const;
+    entities::ToolTier selectedToolTier(entities::ToolKind kind) const;
+    bool hasRequiredPickaxe(world::TileType tileType) const;
+    int activeSwordDamage() const;
+    float breakSpeedMultiplier(world::TileType tileType) const;
 
     struct BreakState {
         bool active{false};
@@ -75,20 +97,11 @@ private:
     BreakState breakState_{};
     float placeCooldown_{0.0F};
     int selectedHotbar_{0};
-    const std::array<world::TileType, rendering::kMaxHotbarSlots> hotbarTypes_{
-        world::TileType::Dirt,
-        world::TileType::Stone,
-        world::TileType::Grass,
-        world::TileType::Wood,
-        world::TileType::Leaves,
-        world::TileType::CopperOre,
-        world::TileType::IronOre,
-        world::TileType::GoldOre};
     rendering::HudState hudState_{};
     bool cameraMode_{false};
     entities::Vec2 cameraPosition_{};
     float cameraSpeed_{80.0F};
-    std::vector<std::unique_ptr<entities::Zombie>> zombies_{};
+    std::vector<entities::Zombie> zombies_{};
     std::mt19937 zombieRng_;
     float zombieSpawnTimer_{0.0F};
     entities::Vec2 spawnPosition_{};
@@ -96,6 +109,9 @@ private:
     float timeOfDay_{0.0F};
     float dayLength_{180.0F};
     bool isNight_{false};
+    int craftSelection_{0};
+    float craftCooldown_{0.0F};
+    std::vector<CraftingRecipe> craftingRecipes_{};
 };
 
 } // namespace terraria::game

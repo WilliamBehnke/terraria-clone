@@ -14,6 +14,8 @@ enum class TileType : std::uint8_t {
     GoldOre,
     Wood,
     Leaves,
+    WoodPlank,
+    StoneBrick,
     TreeTrunk,
     TreeLeaves
 };
