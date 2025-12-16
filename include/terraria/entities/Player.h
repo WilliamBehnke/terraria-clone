@@ -1,7 +1,9 @@
 #pragma once
 
+#include "terraria/entities/Vec2.h"
 #include "terraria/world/Tile.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -10,11 +12,7 @@ namespace terraria::entities {
 
 inline constexpr float kPlayerHalfWidth = 0.35F;
 inline constexpr float kPlayerHeight = 1.8F;
-
-struct Vec2 {
-    float x{0.0F};
-    float y{0.0F};
-};
+inline constexpr int kPlayerMaxHealth = 100;
 
 class Player {
 public:
@@ -31,11 +29,16 @@ public:
     Vec2 velocity() const { return velocity_; }
     void setOnGround(bool grounded) { onGround_ = grounded; }
     bool onGround() const { return onGround_; }
+    void applyDamage(int amount) { health_ = std::max(0, health_ - amount); }
+    void heal(int amount) { health_ = std::min(kPlayerMaxHealth, health_ + amount); }
+    int health() const { return health_; }
+    void resetHealth() { health_ = kPlayerMaxHealth; }
 
 private:
     Vec2 position_{};
     Vec2 velocity_{};
     bool onGround_{false};
+    int health_{kPlayerMaxHealth};
     std::array<int, static_cast<std::size_t>(world::TileType::TreeLeaves) + 1> inventory_{};
 };
 

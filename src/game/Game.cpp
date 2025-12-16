@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <memory>
+#include <random>
 
 namespace terraria::game {
 
@@ -14,6 +16,18 @@ constexpr float kCollisionEpsilon = 0.001F;
 constexpr float kTilePixels = 8.0F;
 constexpr float kBreakRange = 6.0F;
 constexpr float kPlaceRange = 6.0F;
+constexpr float kZombieMoveSpeed = 6.0F;
+constexpr float kZombieSpawnIntervalMin = 3.0F;
+constexpr float kZombieSpawnIntervalMax = 6.0F;
+constexpr int kMaxZombies = 12;
+constexpr float kPlayerAttackCooldown = 0.35F;
+constexpr int kPlayerAttackDamage = 18;
+constexpr int kZombieDamage = 10;
+constexpr float kZombieAttackInterval = 1.2F;
+constexpr float kZombieJumpVelocity = 22.0F;
+constexpr float kDayLengthSeconds = 180.0F;
+constexpr float kNightStart = 0.55F;
+constexpr float kNightEnd = 0.95F;
 
 } // namespace
 
@@ -23,7 +37,9 @@ Game::Game(const core::AppConfig& config)
       generator_{},
       player_{},
       renderer_{rendering::CreateSdlRenderer(config_)},
-      inputSystem_{input::CreateSdlInputSystem()} {}
+      inputSystem_{input::CreateSdlInputSystem()},
+      zombieRng_{static_cast<std::uint32_t>(config.worldWidth * 131 + config.worldHeight * 977)},
+      dayLength_{kDayLengthSeconds} {}
 
 void Game::initialize() {
     generator_.generate(world_);
@@ -37,6 +53,13 @@ void Game::initialize() {
         }
     }
     player_.setPosition({static_cast<float>(spawnX), static_cast<float>(spawnY)});
+    spawnPosition_ = player_.position();
+    player_.resetHealth();
+    std::uniform_real_distribution<float> timerDist(kZombieSpawnIntervalMin, kZombieSpawnIntervalMax);
+    zombieSpawnTimer_ = timerDist(zombieRng_);
+    const float initialNight = (kNightStart + kNightEnd) * 0.5F;
+    timeOfDay_ = dayLength_ * initialNight;
+    isNight_ = true;
 
     renderer_->initialize();
     inputSystem_->initialize();
@@ -87,44 +110,55 @@ void Game::handleInput() {
 }
 
 void Game::update(float dt) {
-    if (cameraMode_) {
-        return;
+    if (!cameraMode_) {
+        entities::Vec2 velocity = player_.velocity();
+        velocity.y += kGravity * dt;
+
+        if (jumpRequested_ && player_.onGround()) {
+            velocity.y = -kJumpVelocity;
+            player_.setOnGround(false);
+        }
+        jumpRequested_ = false;
+
+        entities::Vec2 position = player_.position();
+        position.x += velocity.x * dt;
+        resolveHorizontal(position, velocity);
+
+        position.y += velocity.y * dt;
+        resolveVertical(position, velocity);
+
+        const float maxX = static_cast<float>(world_.width() - 1);
+        const float maxY = static_cast<float>(world_.height() - 1);
+        position.x = std::clamp(position.x, 0.0F, maxX);
+        position.y = std::clamp(position.y, 0.0F, maxY);
+
+        player_.setPosition(position);
+        player_.setVelocity(velocity);
+        cameraPosition_ = clampCameraTarget(position);
     }
 
-    entities::Vec2 velocity = player_.velocity();
-    velocity.y += kGravity * dt;
-
-    if (jumpRequested_ && player_.onGround()) {
-        velocity.y = -kJumpVelocity;
+    updateDayNight(dt);
+    updateZombies(dt);
+    if (player_.health() <= 0) {
+        player_.resetHealth();
+        player_.setPosition(spawnPosition_);
+        player_.setVelocity({0.0F, 0.0F});
         player_.setOnGround(false);
     }
-    jumpRequested_ = false;
-
-    entities::Vec2 position = player_.position();
-    position.x += velocity.x * dt;
-    resolveHorizontal(position, velocity);
-
-    position.y += velocity.y * dt;
-    resolveVertical(position, velocity);
-
-    const float maxX = static_cast<float>(world_.width() - 1);
-    const float maxY = static_cast<float>(world_.height() - 1);
-    position.x = std::clamp(position.x, 0.0F, maxX);
-    position.y = std::clamp(position.y, 0.0F, maxY);
-
-    player_.setPosition(position);
-    player_.setVelocity(velocity);
-    cameraPosition_ = clampCameraTarget(position);
 }
 
 void Game::render() {
-    renderer_->render(world_, player_, hudState_);
+    renderer_->render(world_, player_, zombies_, hudState_);
 }
 
 bool Game::collides(const entities::Vec2& pos) const {
-    const float left = pos.x - entities::kPlayerHalfWidth;
-    const float right = pos.x + entities::kPlayerHalfWidth;
-    const float top = pos.y - entities::kPlayerHeight;
+    return collidesAabb(pos, entities::kPlayerHalfWidth, entities::kPlayerHeight);
+}
+
+bool Game::collidesAabb(const entities::Vec2& pos, float halfWidth, float height) const {
+    const float left = pos.x - halfWidth;
+    const float right = pos.x + halfWidth;
+    const float top = pos.y - height;
     const float bottom = pos.y;
 
     const int startX = static_cast<int>(std::floor(left));
@@ -164,41 +198,56 @@ bool Game::isSolidTile(int x, int y) const {
 }
 
 void Game::resolveHorizontal(entities::Vec2& position, entities::Vec2& velocity) {
-    if (!collides(position)) {
+    resolveHorizontalAabb(position, velocity, entities::kPlayerHalfWidth, entities::kPlayerHeight);
+}
+
+void Game::resolveVertical(entities::Vec2& position, entities::Vec2& velocity) {
+    bool grounded = player_.onGround();
+    resolveVerticalAabb(position, velocity, entities::kPlayerHalfWidth, entities::kPlayerHeight, grounded);
+    player_.setOnGround(grounded);
+}
+
+void Game::resolveHorizontalAabb(entities::Vec2& position,
+                                 entities::Vec2& velocity,
+                                 float halfWidth,
+                                 float height) {
+    if (!collidesAabb(position, halfWidth, height)) {
         return;
     }
+
     if (velocity.x > 0.0F) {
-        const int tileX = static_cast<int>(std::floor(position.x + entities::kPlayerHalfWidth));
-        position.x = static_cast<float>(tileX) - entities::kPlayerHalfWidth - kCollisionEpsilon;
+        const int tileX = static_cast<int>(std::floor(position.x + halfWidth));
+        position.x = static_cast<float>(tileX) - halfWidth - kCollisionEpsilon;
     } else if (velocity.x < 0.0F) {
-        const int tileX = static_cast<int>(std::floor(position.x - entities::kPlayerHalfWidth));
-        position.x = static_cast<float>(tileX + 1) + entities::kPlayerHalfWidth + kCollisionEpsilon;
+        const int tileX = static_cast<int>(std::floor(position.x - halfWidth));
+        position.x = static_cast<float>(tileX + 1) + halfWidth + kCollisionEpsilon;
     } else {
-        // resolve by nudging to the closest free space
-        if (collides(position)) {
-            position.x = std::round(position.x);
-        }
+        position.x = std::round(position.x);
     }
     velocity.x = 0.0F;
 }
 
-void Game::resolveVertical(entities::Vec2& position, entities::Vec2& velocity) {
-    if (!collides(position)) {
-        player_.setOnGround(false);
+void Game::resolveVerticalAabb(entities::Vec2& position,
+                               entities::Vec2& velocity,
+                               float halfWidth,
+                               float height,
+                               bool& onGround) {
+    if (!collidesAabb(position, halfWidth, height)) {
+        onGround = false;
         return;
     }
 
     if (velocity.y > 0.0F) {
         const int tileY = static_cast<int>(std::floor(position.y));
         position.y = static_cast<float>(tileY) - kCollisionEpsilon;
-        player_.setOnGround(true);
+        onGround = true;
     } else if (velocity.y < 0.0F) {
-        const int tileY = static_cast<int>(std::floor(position.y - entities::kPlayerHeight));
-        position.y = static_cast<float>(tileY + 1) + entities::kPlayerHeight + kCollisionEpsilon;
+        const int tileY = static_cast<int>(std::floor(position.y - height));
+        position.y = static_cast<float>(tileY + 1) + height + kCollisionEpsilon;
     } else {
         const int tileY = static_cast<int>(std::floor(position.y));
         position.y = static_cast<float>(tileY) - kCollisionEpsilon;
-        player_.setOnGround(true);
+        onGround = true;
     }
     velocity.y = 0.0F;
 }
@@ -310,7 +359,16 @@ bool Game::tileInsidePlayer(int tileX, int tileY) const {
 
 void Game::handleBreaking(float dt) {
     const auto& state = inputSystem_->state();
+    if (playerAttackCooldown_ > 0.0F) {
+        playerAttackCooldown_ = std::max(0.0F, playerAttackCooldown_ - dt);
+    }
     if (!state.breakHeld) {
+        breakState_ = {};
+        return;
+    }
+
+    if (playerAttackCooldown_ <= 0.0F && attackZombiesAtCursor()) {
+        playerAttackCooldown_ = kPlayerAttackCooldown;
         breakState_ = {};
         return;
     }
@@ -372,6 +430,190 @@ void Game::handlePlacement(float dt) {
     placeCooldown_ = 0.2F;
 }
 
+void Game::updateZombies(float dt) {
+    if (zombieSpawnTimer_ > 0.0F) {
+        zombieSpawnTimer_ -= dt;
+    }
+
+    if (isNight_ && zombieSpawnTimer_ <= 0.0F && static_cast<int>(zombies_.size()) < kMaxZombies) {
+        spawnZombie();
+        std::uniform_real_distribution<float> timerDist(kZombieSpawnIntervalMin, kZombieSpawnIntervalMax);
+        zombieSpawnTimer_ = timerDist(zombieRng_);
+    } else if (!isNight_) {
+        zombieSpawnTimer_ = 0.0F;
+    }
+
+    for (auto& ptr : zombies_) {
+        if (!ptr) {
+            continue;
+        }
+        auto& zombie = *ptr;
+        zombie.attackCooldown = std::max(0.0F, zombie.attackCooldown - dt);
+        applyZombiePhysics(zombie, dt);
+        if (zombiesOverlapPlayer(zombie) && zombie.attackCooldown <= 0.0F) {
+            player_.applyDamage(kZombieDamage);
+            zombie.attackCooldown = kZombieAttackInterval;
+        }
+    }
+
+    zombies_.erase(
+        std::remove_if(zombies_.begin(),
+                       zombies_.end(),
+                       [](const std::unique_ptr<entities::Zombie>& zombie) {
+                           return !zombie || !zombie->alive();
+                       }),
+        zombies_.end());
+}
+
+void Game::applyZombiePhysics(entities::Zombie& zombie, float dt) {
+    const float direction = (player_.position().x < zombie.position.x) ? -1.0F : 1.0F;
+    zombie.velocity.x = direction * kZombieMoveSpeed;
+    zombie.velocity.y += kGravity * dt;
+    zombie.jumpCooldown = std::max(0.0F, zombie.jumpCooldown - dt);
+
+    if (zombie.onGround && zombie.jumpCooldown <= 0.0F) {
+        const int aheadX = static_cast<int>(std::floor(zombie.position.x + direction * (entities::kZombieHalfWidth + 0.1F)));
+        const int footY = static_cast<int>(std::floor(zombie.position.y));
+        bool obstacle = false;
+        for (int y = footY - 1; y <= footY; ++y) {
+            if (isSolidTile(aheadX, y)) {
+                obstacle = true;
+                break;
+            }
+        }
+        if (obstacle) {
+            zombie.velocity.y = -kZombieJumpVelocity;
+            zombie.onGround = false;
+            zombie.jumpCooldown = 0.45F;
+        }
+    }
+
+    entities::Vec2 position = zombie.position;
+    position.x += zombie.velocity.x * dt;
+    resolveHorizontalAabb(position, zombie.velocity, entities::kZombieHalfWidth, entities::kZombieHeight);
+
+    position.y += zombie.velocity.y * dt;
+    resolveVerticalAabb(position, zombie.velocity, entities::kZombieHalfWidth, entities::kZombieHeight, zombie.onGround);
+
+    const float maxX = static_cast<float>(world_.width() - 1);
+    const float maxY = static_cast<float>(world_.height() - 1);
+    position.x = std::clamp(position.x, 0.0F, maxX);
+    position.y = std::clamp(position.y, 0.0F, maxY);
+    zombie.position = position;
+}
+
+void Game::spawnZombie() {
+    if (world_.width() <= 2) {
+        return;
+    }
+
+    std::uniform_int_distribution<int> sideDist(0, 1);
+    std::uniform_int_distribution<int> offsetDist(20, 60);
+    const float direction = (sideDist(zombieRng_) == 0) ? -1.0F : 1.0F;
+    float spawnX = player_.position().x + direction * static_cast<float>(offsetDist(zombieRng_));
+    spawnX = std::clamp(spawnX, 1.0F, static_cast<float>(world_.width() - 2));
+    const int column = static_cast<int>(spawnX);
+
+    int ground = -1;
+    for (int y = 0; y < world_.height(); ++y) {
+        if (isSolidTile(column, y)) {
+            ground = y;
+            break;
+        }
+    }
+    if (ground <= 0) {
+        return;
+    }
+
+    const int spawnY = ground - 1;
+    entities::Zombie zombie;
+    zombie.position = {static_cast<float>(column) + 0.5F, static_cast<float>(spawnY)};
+    zombie.velocity = {0.0F, 0.0F};
+    zombie.onGround = false;
+
+    if (collidesAabb(zombie.position, entities::kZombieHalfWidth, entities::kZombieHeight)) {
+        return;
+    }
+
+    zombies_.push_back(std::make_unique<entities::Zombie>(zombie));
+}
+
+bool Game::attackZombiesAtCursor() {
+    int tileX = 0;
+    int tileY = 0;
+    if (!cursorWorldTile(tileX, tileY)) {
+        return false;
+    }
+
+    for (auto& zombiePtr : zombies_) {
+        if (!zombiePtr) {
+            continue;
+        }
+        if (!zombiePtr->alive()) {
+            continue;
+        }
+        if (cursorHitsZombie(*zombiePtr, tileX, tileY)) {
+            zombiePtr->takeDamage(kPlayerAttackDamage);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Game::zombiesOverlapPlayer(const entities::Zombie& zombie) const {
+    return aabbOverlap(zombie.position,
+                       entities::kZombieHalfWidth,
+                       entities::kZombieHeight,
+                       player_.position(),
+                       entities::kPlayerHalfWidth,
+                       entities::kPlayerHeight);
+}
+
+bool Game::cursorHitsZombie(const entities::Zombie& zombie, int tileX, int tileY) const {
+    const entities::Vec2 cursorPos{static_cast<float>(tileX) + 0.5F, static_cast<float>(tileY + 1)};
+    return aabbOverlap(cursorPos, 0.5F, 1.0F, zombie.position, entities::kZombieHalfWidth, entities::kZombieHeight);
+}
+
+bool Game::aabbOverlap(const entities::Vec2& aPos,
+                       float aHalfWidth,
+                       float aHeight,
+                       const entities::Vec2& bPos,
+                       float bHalfWidth,
+                       float bHeight) const {
+    const float aLeft = aPos.x - aHalfWidth;
+    const float aRight = aPos.x + aHalfWidth;
+    const float aTop = aPos.y - aHeight;
+    const float aBottom = aPos.y;
+
+    const float bLeft = bPos.x - bHalfWidth;
+    const float bRight = bPos.x + bHalfWidth;
+    const float bTop = bPos.y - bHeight;
+    const float bBottom = bPos.y;
+
+    return aRight > bLeft && aLeft < bRight && aBottom > bTop && aTop < bBottom;
+}
+
+void Game::updateDayNight(float dt) {
+    if (dayLength_ <= 0.001F) {
+        isNight_ = false;
+        return;
+    }
+    timeOfDay_ += dt;
+    while (timeOfDay_ >= dayLength_) {
+        timeOfDay_ -= dayLength_;
+    }
+
+    const float normalized = normalizedTimeOfDay();
+    isNight_ = normalized >= kNightStart && normalized < kNightEnd;
+}
+
+float Game::normalizedTimeOfDay() const {
+    if (dayLength_ <= 0.001F) {
+        return 0.0F;
+    }
+    return std::clamp(timeOfDay_ / dayLength_, 0.0F, 1.0F);
+}
+
 void Game::updateHudState() {
     hudState_.selectedSlot = selectedHotbar_;
     hudState_.hotbarCount = static_cast<int>(hotbarTypes_.size());
@@ -409,6 +651,11 @@ void Game::updateHudState() {
     hudState_.useCamera = cameraMode_;
     hudState_.cameraX = cameraPosition_.x;
     hudState_.cameraY = cameraPosition_.y;
+    hudState_.playerHealth = player_.health();
+    hudState_.playerMaxHealth = entities::kPlayerMaxHealth;
+    hudState_.zombieCount = static_cast<int>(zombies_.size());
+    hudState_.dayProgress = normalizedTimeOfDay();
+    hudState_.isNight = isNight_;
 }
 
 void Game::toggleCameraMode() {

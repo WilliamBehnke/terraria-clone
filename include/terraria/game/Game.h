@@ -2,13 +2,16 @@
 
 #include "terraria/core/Application.h"
 #include "terraria/entities/Player.h"
+#include "terraria/entities/Zombie.h"
 #include "terraria/input/InputSystem.h"
 #include "terraria/rendering/Renderer.h"
 #include "terraria/world/World.h"
 #include "terraria/world/WorldGenerator.h"
 
-#include <memory>
 #include <array>
+#include <memory>
+#include <random>
+#include <vector>
 
 namespace terraria::game {
 
@@ -25,9 +28,12 @@ private:
     void update(float dt);
     void render();
     bool collides(const entities::Vec2& pos) const;
+    bool collidesAabb(const entities::Vec2& pos, float halfWidth, float height) const;
     bool isSolidTile(int x, int y) const;
     void resolveHorizontal(entities::Vec2& position, entities::Vec2& velocity);
     void resolveVertical(entities::Vec2& position, entities::Vec2& velocity);
+    void resolveHorizontalAabb(entities::Vec2& position, entities::Vec2& velocity, float halfWidth, float height);
+    void resolveVerticalAabb(entities::Vec2& position, entities::Vec2& velocity, float halfWidth, float height, bool& onGround);
     void processActions(float dt);
     bool cursorWorldTile(int& outX, int& outY) const;
     bool canBreakTile(int tileX, int tileY) const;
@@ -41,6 +47,16 @@ private:
     entities::Vec2 cameraFocus() const;
     entities::Vec2 clampCameraTarget(const entities::Vec2& desired) const;
     static bool isTreeTile(world::TileType type);
+    void updateZombies(float dt);
+    void applyZombiePhysics(entities::Zombie& zombie, float dt);
+    void spawnZombie();
+    bool attackZombiesAtCursor();
+    bool zombiesOverlapPlayer(const entities::Zombie& zombie) const;
+    bool cursorHitsZombie(const entities::Zombie& zombie, int tileX, int tileY) const;
+    bool aabbOverlap(const entities::Vec2& aPos, float aHalfWidth, float aHeight,
+                     const entities::Vec2& bPos, float bHalfWidth, float bHeight) const;
+    void updateDayNight(float dt);
+    float normalizedTimeOfDay() const;
 
     struct BreakState {
         bool active{false};
@@ -72,6 +88,14 @@ private:
     bool cameraMode_{false};
     entities::Vec2 cameraPosition_{};
     float cameraSpeed_{80.0F};
+    std::vector<std::unique_ptr<entities::Zombie>> zombies_{};
+    std::mt19937 zombieRng_;
+    float zombieSpawnTimer_{0.0F};
+    entities::Vec2 spawnPosition_{};
+    float playerAttackCooldown_{0.0F};
+    float timeOfDay_{0.0F};
+    float dayLength_{180.0F};
+    bool isNight_{false};
 };
 
 } // namespace terraria::game

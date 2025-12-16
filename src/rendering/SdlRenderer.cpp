@@ -7,15 +7,18 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace terraria::rendering {
 
 namespace {
 
 constexpr int kTilePixels = 8;
+constexpr float kTwoPi = 6.28318530718F;
 
 SDL_Color TileColor(world::TileType type) {
     switch (type) {
@@ -32,6 +35,19 @@ SDL_Color TileColor(world::TileType type) {
     case world::TileType::Air:
     default: return SDL_Color{0, 0, 0, 0};
     }
+}
+
+SDL_Color SkyColor(const HudState& hud) {
+    const float progress = std::clamp(hud.dayProgress, 0.0F, 1.0F);
+    const float daylight = 0.5F - 0.5F * std::cos(progress * kTwoPi);
+    const float shade = std::clamp(daylight * 0.85F + (hud.isNight ? 0.05F : 0.15F), 0.05F, 1.0F);
+    const int r = static_cast<int>(10.0F + 80.0F * shade);
+    const int g = static_cast<int>(18.0F + 110.0F * shade);
+    const int b = static_cast<int>(28.0F + 140.0F * shade);
+    return SDL_Color{static_cast<Uint8>(std::clamp(r, 0, 255)),
+                     static_cast<Uint8>(std::clamp(g, 0, 255)),
+                     static_cast<Uint8>(std::clamp(b, 0, 255)),
+                     255};
 }
 
 class SdlRenderer final : public IRenderer {
@@ -65,8 +81,12 @@ public:
         SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     }
 
-    void render(const world::World& world, const entities::Player& player, const HudState& hud) override {
-        SDL_SetRenderDrawColor(renderer_, 12, 20, 34, 255);
+    void render(const world::World& world,
+                const entities::Player& player,
+                const std::vector<std::unique_ptr<entities::Zombie>>& zombies,
+                const HudState& hud) override {
+        const SDL_Color sky = SkyColor(hud);
+        SDL_SetRenderDrawColor(renderer_, sky.r, sky.g, sky.b, sky.a);
         SDL_RenderClear(renderer_);
 
         const int tilesWide = config_.windowWidth / kTilePixels + 2;
@@ -136,24 +156,10 @@ public:
             }
         }
 
-        const float playerPixelWidth = entities::kPlayerHalfWidth * 2.0F * static_cast<float>(kTilePixels);
-        const float playerPixelHeight = entities::kPlayerHeight * static_cast<float>(kTilePixels);
-        const float playerPixelX = pixelOffsetX + (player.position().x - static_cast<float>(startX)) * static_cast<float>(kTilePixels);
-        const float playerPixelBottom =
-            pixelOffsetY + (player.position().y - static_cast<float>(startY)) * static_cast<float>(kTilePixels);
-        const int rectWidth = std::max(2, static_cast<int>(std::round(playerPixelWidth)));
-        const int rectHeight = std::max(2, static_cast<int>(std::round(playerPixelHeight)));
-        const int rectX = static_cast<int>(std::round(playerPixelX - playerPixelWidth / 2.0F));
-        const int rectY = static_cast<int>(std::round(playerPixelBottom - playerPixelHeight));
+        drawZombies(zombies, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
 
-        SDL_SetRenderDrawColor(renderer_, 10, 10, 10, 200);
-        SDL_Rect outlineRect{rectX - 1, rectY - 1, rectWidth + 2, rectHeight + 2};
-        SDL_RenderFillRect(renderer_, &outlineRect);
-
-        SDL_SetRenderDrawColor(renderer_, 250, 240, 230, 255);
-        SDL_Rect playerRect{rectX, rectY, rectWidth, rectHeight};
-        SDL_RenderFillRect(renderer_, &playerRect);
-
+        drawPlayer(player, startX, startY, pixelOffsetX, pixelOffsetY);
+        drawStatusWidgets(hud);
         drawInventoryOverlay(player, hud);
 
         SDL_RenderPresent(renderer_);
@@ -176,6 +182,124 @@ private:
     SDL_Window* window_{nullptr};
     SDL_Renderer* renderer_{nullptr};
 
+    void drawPlayer(const entities::Player& player, int startX, int startY, int pixelOffsetX, int pixelOffsetY) {
+        const float playerPixelWidth = entities::kPlayerHalfWidth * 2.0F * static_cast<float>(kTilePixels);
+        const float playerPixelHeight = entities::kPlayerHeight * static_cast<float>(kTilePixels);
+        const float playerPixelX = pixelOffsetX + (player.position().x - static_cast<float>(startX)) * static_cast<float>(kTilePixels);
+        const float playerPixelBottom =
+            pixelOffsetY + (player.position().y - static_cast<float>(startY)) * static_cast<float>(kTilePixels);
+        const int rectWidth = std::max(2, static_cast<int>(std::round(playerPixelWidth)));
+        const int rectHeight = std::max(2, static_cast<int>(std::round(playerPixelHeight)));
+        const int rectX = static_cast<int>(std::round(playerPixelX - playerPixelWidth / 2.0F));
+        const int rectY = static_cast<int>(std::round(playerPixelBottom - playerPixelHeight));
+
+        SDL_SetRenderDrawColor(renderer_, 10, 10, 10, 200);
+        SDL_Rect outlineRect{rectX - 1, rectY - 1, rectWidth + 2, rectHeight + 2};
+        SDL_RenderFillRect(renderer_, &outlineRect);
+
+        SDL_SetRenderDrawColor(renderer_, 250, 240, 230, 255);
+        SDL_Rect playerRect{rectX, rectY, rectWidth, rectHeight};
+        SDL_RenderFillRect(renderer_, &playerRect);
+    }
+
+    void drawZombies(const std::vector<std::unique_ptr<entities::Zombie>>& zombies,
+                     int startX,
+                     int startY,
+                     int tilesWide,
+                     int tilesTall,
+                     int pixelOffsetX,
+                     int pixelOffsetY) {
+        for (const auto& zombiePtr : zombies) {
+            if (!zombiePtr) {
+                continue;
+            }
+            const auto& zombie = *zombiePtr;
+            const float zombieLeft = zombie.position.x - entities::kZombieHalfWidth;
+            const float zombieRight = zombie.position.x + entities::kZombieHalfWidth;
+            const float zombieTop = zombie.position.y - entities::kZombieHeight;
+            const float zombieBottom = zombie.position.y;
+            if (zombieRight < static_cast<float>(startX) || zombieLeft > static_cast<float>(startX + tilesWide)) {
+                continue;
+            }
+            if (zombieBottom < static_cast<float>(startY) || zombieTop > static_cast<float>(startY + tilesTall)) {
+                continue;
+            }
+
+            const float pixelWidth = entities::kZombieHalfWidth * 2.0F * static_cast<float>(kTilePixels);
+            const float pixelHeight = entities::kZombieHeight * static_cast<float>(kTilePixels);
+            const float pixelX = pixelOffsetX + (zombie.position.x - static_cast<float>(startX)) * static_cast<float>(kTilePixels);
+            const float pixelBottom = pixelOffsetY + (zombie.position.y - static_cast<float>(startY)) * static_cast<float>(kTilePixels);
+            const int rectWidth = std::max(2, static_cast<int>(std::round(pixelWidth)));
+            const int rectHeight = std::max(2, static_cast<int>(std::round(pixelHeight)));
+            const int rectX = static_cast<int>(std::round(pixelX - pixelWidth / 2.0F));
+            const int rectY = static_cast<int>(std::round(pixelBottom - pixelHeight));
+
+            SDL_SetRenderDrawColor(renderer_, 20, 20, 20, 180);
+            SDL_Rect outline{rectX - 1, rectY - 1, rectWidth + 2, rectHeight + 2};
+            SDL_RenderFillRect(renderer_, &outline);
+
+            SDL_SetRenderDrawColor(renderer_, 100, 180, 120, 255);
+            SDL_Rect zombieRect{rectX, rectY, rectWidth, rectHeight};
+            SDL_RenderFillRect(renderer_, &zombieRect);
+
+            const float ratio = std::clamp(zombie.health / 35.0F, 0.0F, 1.0F);
+            SDL_SetRenderDrawColor(renderer_, 50, 180, 90, 220);
+            SDL_Rect barBg{rectX, rectY - 4, rectWidth, 3};
+            SDL_RenderFillRect(renderer_, &barBg);
+            SDL_SetRenderDrawColor(renderer_, 200, 60, 60, 240);
+            SDL_Rect hpBar{rectX, rectY - 4, static_cast<int>(rectWidth * ratio), 3};
+            SDL_RenderFillRect(renderer_, &hpBar);
+        }
+    }
+
+    void drawStatusWidgets(const HudState& hud) {
+        const int barWidth = 220;
+        const int barHeight = 16;
+        const int margin = 10;
+        SDL_Rect bg{margin, margin, barWidth, barHeight};
+        SDL_SetRenderDrawColor(renderer_, 20, 20, 20, 220);
+        SDL_RenderFillRect(renderer_, &bg);
+        SDL_SetRenderDrawColor(renderer_, 90, 90, 90, 255);
+        SDL_RenderDrawRect(renderer_, &bg);
+
+        float ratio = 0.0F;
+        if (hud.playerMaxHealth > 0) {
+            ratio = std::clamp(static_cast<float>(hud.playerHealth) / static_cast<float>(hud.playerMaxHealth), 0.0F, 1.0F);
+        }
+        SDL_SetRenderDrawColor(renderer_, 200, 70, 70, 255);
+        SDL_Rect fill{margin + 2, margin + 2, static_cast<int>((barWidth - 4) * ratio), barHeight - 4};
+        SDL_RenderFillRect(renderer_, &fill);
+
+        SDL_Color textColor{230, 230, 230, 255};
+        drawNumber(std::to_string(std::max(0, hud.playerHealth)), margin + barWidth + 8, margin + 2, 3, textColor);
+
+        SDL_Rect zombiePanel{margin, margin + barHeight + 8, 80, 20};
+        SDL_SetRenderDrawColor(renderer_, 10, 10, 10, 200);
+        SDL_RenderFillRect(renderer_, &zombiePanel);
+        SDL_SetRenderDrawColor(renderer_, 70, 70, 70, 255);
+        SDL_RenderDrawRect(renderer_, &zombiePanel);
+        drawNumber(std::to_string(std::max(0, hud.zombieCount)), zombiePanel.x + 8, zombiePanel.y + 4, 2, SDL_Color{160, 220, 170, 255});
+
+        const int cycleWidth = 150;
+        const int cycleHeight = 12;
+        const int cycleX = config_.windowWidth - cycleWidth - margin;
+        const int cycleY = margin;
+        SDL_Rect cycleBg{cycleX, cycleY, cycleWidth, cycleHeight};
+        SDL_SetRenderDrawColor(renderer_, 18, 18, 18, 220);
+        SDL_RenderFillRect(renderer_, &cycleBg);
+        SDL_SetRenderDrawColor(renderer_, 70, 70, 70, 255);
+        SDL_RenderDrawRect(renderer_, &cycleBg);
+
+        const float clampedProgress = std::clamp(hud.dayProgress, 0.0F, 1.0F);
+        const int indicatorX = cycleX + static_cast<int>(clampedProgress * static_cast<float>(cycleWidth - 10));
+        SDL_Color indicatorColor = hud.isNight ? SDL_Color{150, 190, 255, 255} : SDL_Color{255, 220, 120, 255};
+        SDL_SetRenderDrawColor(renderer_, indicatorColor.r, indicatorColor.g, indicatorColor.b, indicatorColor.a);
+        SDL_Rect indicator{indicatorX, cycleY + 2, 10, cycleHeight - 4};
+        SDL_RenderFillRect(renderer_, &indicator);
+        SDL_Rect icon{cycleX - 18, cycleY - 2, 12, 12};
+        SDL_SetRenderDrawColor(renderer_, indicatorColor.r, indicatorColor.g, indicatorColor.b, indicatorColor.a);
+        SDL_RenderFillRect(renderer_, &icon);
+    }
     void drawInventoryOverlay(const entities::Player& player, const HudState& hud) {
         if (hud.hotbarCount <= 0) {
             return;

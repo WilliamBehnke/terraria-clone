@@ -24,6 +24,11 @@ struct HudState {
     bool useCamera{false};
     float cameraX{0.0F};
     float cameraY{0.0F};
+    int playerHealth{0};
+    int playerMaxHealth{0};
+    int zombieCount{0};
+    float dayProgress{0.0F};
+    bool isNight{false};
 };
 
 } // namespace terraria::rendering

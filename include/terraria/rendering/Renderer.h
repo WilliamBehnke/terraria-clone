@@ -1,8 +1,11 @@
 #pragma once
 
 #include "terraria/entities/Player.h"
+#include "terraria/entities/Zombie.h"
 #include "terraria/rendering/HudState.h"
 #include "terraria/world/World.h"
+
+#include <vector>
 
 #include <memory>
 
@@ -16,7 +19,10 @@ class IRenderer {
 public:
     virtual ~IRenderer() = default;
     virtual void initialize() = 0;
-    virtual void render(const world::World& world, const entities::Player& player, const HudState& hud) = 0;
+    virtual void render(const world::World& world,
+                        const entities::Player& player,
+                        const std::vector<std::unique_ptr<entities::Zombie>>& zombies,
+                        const HudState& hud) = 0;
     virtual void shutdown() = 0;
 };
 
