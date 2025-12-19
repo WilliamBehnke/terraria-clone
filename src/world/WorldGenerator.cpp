@@ -34,14 +34,14 @@ float octaveNoise(int x, int seed, float baseFreq, int octaves) {
 
 std::vector<int> buildSurfaceProfile(int width, int height) {
     std::vector<int> surface(static_cast<std::size_t>(width), height / 3);
-    const int chunkSize = 128;
+    const int chunkSize = 192;
     const int chunkCount = width / chunkSize + 2;
     std::vector<float> chunkHeights(static_cast<std::size_t>(chunkCount));
     for (int i = 0; i < chunkCount; ++i) {
         const int sampleX = i * chunkSize;
-        const float broad = octaveNoise(sampleX, 2001, 0.00008F, 2);
-        const float mesas = octaveNoise(sampleX, 3311, 0.0002F, 2);
-        chunkHeights[static_cast<std::size_t>(i)] = 0.3F + broad * 0.5F + (mesas - 0.5F) * 0.25F;
+        const float broad = octaveNoise(sampleX, 2001, 0.00005F, 3);
+        const float mesas = octaveNoise(sampleX, 3311, 0.00018F, 2);
+        chunkHeights[static_cast<std::size_t>(i)] = 0.32F + broad * 0.5F + (mesas - 0.5F) * 0.2F;
     }
 
     for (int x = 0; x < width; ++x) {
@@ -51,18 +51,18 @@ std::vector<int> buildSurfaceProfile(int width, int height) {
                                      chunkHeights[static_cast<std::size_t>(chunkIndex + 1)],
                                      t);
 
-        const float continental = octaveNoise(x, 7231, 0.00045F, 4) - 0.5F;
+        const float continental = octaveNoise(x, 7231, 0.00035F, 4) - 0.5F;
         const float rolling = octaveNoise(x, 9127, 0.0009F, 4) - 0.5F;
-        const float ridge = std::sin(static_cast<float>(x) * 0.0005F) * 0.2F;
-        normalized += continental * 0.25F + rolling * 0.18F + ridge;
+        const float ridge = std::sin(static_cast<float>(x) * 0.00045F) * 0.18F;
+        normalized += continental * 0.2F + rolling * 0.12F + ridge;
 
-        normalized = std::clamp(normalized, 0.1F, 0.85F);
+        normalized = std::clamp(normalized, 0.12F, 0.85F);
         int surfaceY = static_cast<int>(normalized * static_cast<float>(height));
         surfaceY = std::clamp(surfaceY, height / 8, (height * 5) / 6);
         surface[static_cast<std::size_t>(x)] = surfaceY;
     }
 
-    for (int iteration = 0; iteration < 1; ++iteration) {
+    for (int iteration = 0; iteration < 2; ++iteration) {
         std::vector<int> copy = surface;
         for (int x = 1; x < width - 1; ++x) {
             surface[static_cast<std::size_t>(x)] =
@@ -71,20 +71,12 @@ std::vector<int> buildSurfaceProfile(int width, int height) {
         }
     }
 
-    for (int x = 0; x < width; ++x) {
-        const float perturb = octaveNoise(x, 5555, 0.0024F, 3) - 0.5F;
-        const float terrace = std::sin(static_cast<float>(x) * 0.0009F) * 0.5F;
-        const int delta = static_cast<int>((perturb * 18.0F) + terrace * 10.0F);
-        surface[static_cast<std::size_t>(x)] =
-            std::clamp(surface[static_cast<std::size_t>(x)] + delta, height / 8, height * 3 / 4);
-    }
-
     for (int x = 1; x < width; ++x) {
         const int diff = surface[static_cast<std::size_t>(x)] - surface[static_cast<std::size_t>(x - 1)];
-        if (diff > 20) {
-            surface[static_cast<std::size_t>(x)] = surface[static_cast<std::size_t>(x - 1)] + 20;
-        } else if (diff < -20) {
-            surface[static_cast<std::size_t>(x)] = surface[static_cast<std::size_t>(x - 1)] - 20;
+        if (diff > 16) {
+            surface[static_cast<std::size_t>(x)] = surface[static_cast<std::size_t>(x - 1)] + 16;
+        } else if (diff < -16) {
+            surface[static_cast<std::size_t>(x)] = surface[static_cast<std::size_t>(x - 1)] - 16;
         }
     }
 
@@ -92,22 +84,39 @@ std::vector<int> buildSurfaceProfile(int width, int height) {
 }
 
 void paintColumn(World& world, int x, int surfaceY) {
-    for (int y = 0; y < world.height(); ++y) {
-        Tile& tile = world.tile(x, y);
-        if (y < surfaceY) {
-            tile = {TileType::Air, false};
+    const int height = world.height();
+    const int soilMin = 16;
+    const int soilMax = 28;
+    const int surface = std::clamp(surfaceY, 0, std::max(0, height - 2));
+
+    const int soilDepth = soilMin
+        + static_cast<int>(hashNoise(x * 37, 9001) * static_cast<float>(soilMax - soilMin));
+    const int transitionDepth = soilDepth + 18;
+    const bool mountainTop = surface <= height / 6;
+
+    for (int y = 0; y < height; ++y) {
+        if (y < surface) {
+            world.setTile(x, y, TileType::Air, false);
             continue;
         }
 
-        const int depth = y - surfaceY;
+        const int depth = y - surface;
         if (depth == 0) {
-            tile = {TileType::Grass, true};
-        } else if (depth < 8) {
-            tile = {TileType::Dirt, true};
-        } else if (depth < 20) {
-            tile = {TileType::Dirt, true};
+            if (mountainTop && hashNoise(x * 73, 18511) > 0.7F) {
+                world.setTile(x, y, TileType::Stone, true);
+            } else {
+                world.setTile(x, y, TileType::Grass, true);
+            }
+            continue;
+        }
+
+        if (depth <= soilDepth) {
+            world.setTile(x, y, TileType::Dirt, true);
+        } else if (depth <= transitionDepth) {
+            const float blend = hashNoise(x * 131 + depth * 53, 7001);
+            world.setTile(x, y, blend > 0.35F ? TileType::Stone : TileType::Dirt, true);
         } else {
-            tile = {TileType::Stone, true};
+            world.setTile(x, y, TileType::Stone, true);
         }
     }
 }
@@ -119,10 +128,10 @@ bool placeTree(World& world, int x, int surfaceY, int height) {
 
     const Tile& support = world.tile(x, surfaceY);
     const Tile& below = world.tile(x, surfaceY + 1);
-    if (!support.active || (support.type != TileType::Grass && support.type != TileType::Dirt)) {
+    if (!support.active() || (support.type() != TileType::Grass && support.type() != TileType::Dirt)) {
         return false;
     }
-    if (!below.active || below.type != TileType::Dirt) {
+    if (!below.active() || below.type() != TileType::Dirt) {
         return false;
     }
 
@@ -136,14 +145,14 @@ bool placeTree(World& world, int x, int surfaceY, int height) {
         if (ty < 0) {
             return false;
         }
-        if (world.tile(x, ty).active) {
+        if (world.tile(x, ty).active()) {
             return false;
         }
     }
 
     for (int i = 0; i < height; ++i) {
         const int ty = baseY - i;
-        world.tile(x, ty) = {TileType::TreeTrunk, true};
+        world.setTile(x, ty, TileType::TreeTrunk, true);
     }
 
     const int trunkTop = baseY - (height - 1);
@@ -159,9 +168,9 @@ bool placeTree(World& world, int x, int surfaceY, int height) {
             if (tx < 0 || tx >= world.width() || ty < 0 || ty >= world.height()) {
                 continue;
             }
-            Tile& tile = world.tile(tx, ty);
-            if (!tile.active || tile.type == TileType::TreeLeaves) {
-                tile = {TileType::TreeLeaves, true};
+            const Tile& tile = world.tile(tx, ty);
+            if (!tile.active() || tile.type() == TileType::TreeLeaves) {
+                world.setTile(tx, ty, TileType::TreeLeaves, true);
             }
         }
     }
@@ -246,9 +255,9 @@ void placeOreVeins(World& world, const OreConfig& config, std::mt19937& rng) {
                     const int tx = tileX + dx;
                     const int ty = tileY + dy;
                     if (tx >= 0 && tx < world.width() && ty >= 0 && ty < world.height()) {
-                        Tile& tile = world.tile(tx, ty);
-                        if (tile.active && (tile.type == TileType::Stone || tile.type == TileType::Dirt)) {
-                            tile.type = config.type;
+                        const Tile& tile = world.tile(tx, ty);
+                        if (tile.active() && (tile.type() == TileType::Stone || tile.type() == TileType::Dirt)) {
+                            world.setTileType(tx, ty, config.type);
                         }
                     }
                 }
@@ -354,7 +363,7 @@ void WorldGenerator::carveCircle(World& world, int centerX, int centerY, int rad
             const int x = centerX + dx;
             const int y = centerY + dy;
             if (x >= 0 && x < world.width() && y >= 0 && y < world.height()) {
-                world.tile(x, y) = {TileType::Air, false};
+                world.setTile(x, y, TileType::Air, false);
             }
         }
     }

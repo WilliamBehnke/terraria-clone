@@ -16,6 +16,9 @@ struct Zombie {
     int health{35};
     float attackCooldown{0.0F};
     float jumpCooldown{0.0F};
+    int id{0};
+    float stuckTimer{0.0F};
+    float lastX{0.0F};
 
     bool alive() const { return health > 0; }
     void takeDamage(int amount) { health = std::max(0, health - amount); }

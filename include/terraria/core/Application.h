@@ -10,8 +10,8 @@ struct AppConfig {
     int windowWidth{1280};
     int windowHeight{720};
     int targetFps{60};
-    int worldWidth{1024};
-    int worldHeight{320};
+    int worldWidth{4096};
+    int worldHeight{768};
 };
 
 class Application {

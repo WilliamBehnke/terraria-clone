@@ -28,6 +28,9 @@ public:
         state_.craftPrev = false;
         state_.craftNext = false;
         state_.craftExecute = false;
+        state_.inventoryToggle = false;
+        state_.inventoryClick = false;
+        state_.inventoryRightClick = false;
         SDL_Event event{};
         const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
 
@@ -47,11 +50,27 @@ public:
                 case SDLK_7: state_.hotbarSelection = 6; break;
                 case SDLK_8: state_.hotbarSelection = 7; break;
                 case SDLK_9: state_.hotbarSelection = 8; break;
-                case SDLK_0: state_.hotbarSelection = 9; break;
-                case SDLK_LEFTBRACKET: state_.craftPrev = true; break;
-                case SDLK_RIGHTBRACKET: state_.craftNext = true; break;
-                case SDLK_f: state_.craftExecute = true; break;
+                case SDLK_e: state_.inventoryToggle = true; break;
+                case SDLK_LEFTBRACKET:
+                case SDLK_UP:
+                    state_.craftPrev = true;
+                    break;
+                case SDLK_RIGHTBRACKET:
+                case SDLK_DOWN:
+                    state_.craftNext = true;
+                    break;
+                case SDLK_f:
+                case SDLK_RETURN:
+                case SDLK_KP_ENTER:
+                    state_.craftExecute = true;
+                    break;
                 default: break;
+                }
+            } else if (event.type == SDL_MOUSEBUTTONDOWN) {
+                if (event.button.button == SDL_BUTTON_LEFT) {
+                    state_.inventoryClick = true;
+                } else if (event.button.button == SDL_BUTTON_RIGHT) {
+                    state_.inventoryRightClick = true;
                 }
             }
         }

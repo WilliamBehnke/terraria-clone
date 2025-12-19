@@ -18,6 +18,9 @@ struct InputState {
     bool craftPrev{false};
     bool craftNext{false};
     bool craftExecute{false};
+    bool inventoryToggle{false};
+    bool inventoryClick{false};
+    bool inventoryRightClick{false};
 };
 
 class IInputSystem {
