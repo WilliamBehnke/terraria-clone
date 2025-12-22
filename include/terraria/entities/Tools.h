@@ -16,8 +16,10 @@ enum class ItemCategory : std::uint8_t {
 enum class ToolKind : std::uint8_t {
     Pickaxe,
     Axe,
+    Shovel,
+    Hoe,
     Sword,
-    Blaster
+    Bow
 };
 
 enum class ToolTier : std::uint8_t {
@@ -49,15 +51,15 @@ enum class ArmorSlot : std::uint8_t {
 
 enum class ArmorId : std::uint8_t {
     None,
-    WoodHelmet,
-    WoodChest,
-    WoodBoots,
     CopperHelmet,
     CopperChest,
-    CopperBoots,
+    CopperLeggings,
     IronHelmet,
     IronChest,
-    IronBoots
+    IronLeggings,
+    GoldHelmet,
+    GoldChest,
+    GoldLeggings
 };
 
 enum class AccessoryId : std::uint8_t {
@@ -76,30 +78,30 @@ struct EquipmentStats {
 
 inline ArmorSlot ArmorSlotFor(ArmorId id) {
     switch (id) {
-    case ArmorId::WoodHelmet:
     case ArmorId::CopperHelmet:
-    case ArmorId::IronHelmet: return ArmorSlot::Head;
-    case ArmorId::WoodChest:
+    case ArmorId::IronHelmet:
+    case ArmorId::GoldHelmet: return ArmorSlot::Head;
     case ArmorId::CopperChest:
-    case ArmorId::IronChest: return ArmorSlot::Body;
-    case ArmorId::WoodBoots:
-    case ArmorId::CopperBoots:
-    case ArmorId::IronBoots: return ArmorSlot::Legs;
+    case ArmorId::IronChest:
+    case ArmorId::GoldChest: return ArmorSlot::Body;
+    case ArmorId::CopperLeggings:
+    case ArmorId::IronLeggings:
+    case ArmorId::GoldLeggings: return ArmorSlot::Legs;
     default: return ArmorSlot::Head;
     }
 }
 
 inline EquipmentStats ArmorStats(ArmorId id) {
     switch (id) {
-    case ArmorId::WoodHelmet: return EquipmentStats{1, 0.0F, 0.0F, 0};
-    case ArmorId::WoodChest: return EquipmentStats{2, 0.0F, 0.0F, 0};
-    case ArmorId::WoodBoots: return EquipmentStats{1, 0.0F, 0.0F, 0};
     case ArmorId::CopperHelmet: return EquipmentStats{2, 0.0F, 0.0F, 0};
     case ArmorId::CopperChest: return EquipmentStats{3, 0.0F, 0.0F, 5};
-    case ArmorId::CopperBoots: return EquipmentStats{2, 0.02F, 0.0F, 0};
+    case ArmorId::CopperLeggings: return EquipmentStats{2, 0.02F, 0.0F, 0};
     case ArmorId::IronHelmet: return EquipmentStats{3, 0.0F, 0.0F, 5};
     case ArmorId::IronChest: return EquipmentStats{4, 0.02F, 0.0F, 5};
-    case ArmorId::IronBoots: return EquipmentStats{3, 0.04F, 0.05F, 0};
+    case ArmorId::IronLeggings: return EquipmentStats{3, 0.04F, 0.05F, 0};
+    case ArmorId::GoldHelmet: return EquipmentStats{4, 0.0F, 0.0F, 10};
+    case ArmorId::GoldChest: return EquipmentStats{5, 0.03F, 0.0F, 10};
+    case ArmorId::GoldLeggings: return EquipmentStats{4, 0.05F, 0.06F, 0};
     default: return EquipmentStats{};
     }
 }
@@ -115,15 +117,15 @@ inline EquipmentStats AccessoryStats(AccessoryId id) {
 
 inline const char* ArmorName(ArmorId id) {
     switch (id) {
-    case ArmorId::WoodHelmet: return "WOODHELM";
-    case ArmorId::WoodChest: return "WOODCHEST";
-    case ArmorId::WoodBoots: return "WOODBOOTS";
     case ArmorId::CopperHelmet: return "COPPERHELM";
     case ArmorId::CopperChest: return "COPPERCHEST";
-    case ArmorId::CopperBoots: return "COPPERBOOTS";
+    case ArmorId::CopperLeggings: return "COPPERLEGGINGS";
     case ArmorId::IronHelmet: return "IRONHELM";
     case ArmorId::IronChest: return "IRONCHEST";
-    case ArmorId::IronBoots: return "IRONBOOTS";
+    case ArmorId::IronLeggings: return "IRONLEGGINGS";
+    case ArmorId::GoldHelmet: return "GOLDHELM";
+    case ArmorId::GoldChest: return "GOLDCHEST";
+    case ArmorId::GoldLeggings: return "GOLDLEGGINGS";
     default: return "";
     }
 }

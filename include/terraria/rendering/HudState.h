@@ -4,6 +4,8 @@
 #include "terraria/world/Tile.h"
 
 #include <array>
+#include <string>
+#include <vector>
 
 namespace terraria::rendering {
 
@@ -11,7 +13,6 @@ constexpr int kMaxHotbarSlots = 9;
 constexpr int kInventoryRows = 4;
 constexpr int kInventoryColumns = kMaxHotbarSlots;
 constexpr int kMaxInventorySlots = kInventoryRows * kInventoryColumns;
-constexpr int kMaxCraftRecipes = 20;
 constexpr int kInventorySlotWidth = 90;
 constexpr int kInventorySlotHeight = 56;
 constexpr int kInventorySlotSpacing = 10;
@@ -19,6 +20,9 @@ constexpr int kArmorSlotCount = static_cast<int>(entities::ArmorSlot::Count);
 constexpr int kAccessorySlotCount = entities::kAccessorySlotCount;
 constexpr int kTotalEquipmentSlots = kArmorSlotCount + kAccessorySlotCount;
 constexpr int kMaxProjectiles = 64;
+constexpr int kMaxFlyingEnemies = 24;
+constexpr int kMaxEnemyProjectiles = 64;
+constexpr int kMaxWorms = 24;
 
 struct HotbarSlotHud {
     bool isTool{false};
@@ -69,6 +73,48 @@ struct ProjectileHudEntry {
     float radius{0.0F};
 };
 
+struct EnemyProjectileHudEntry {
+    bool active{false};
+    float x{0.0F};
+    float y{0.0F};
+    float radius{0.0F};
+};
+
+struct FlyingEnemyHudEntry {
+    bool active{false};
+    float x{0.0F};
+    float y{0.0F};
+    float radius{0.0F};
+    int health{0};
+    int maxHealth{0};
+};
+
+struct WormHudEntry {
+    bool active{false};
+    float x{0.0F};
+    float y{0.0F};
+    float vx{0.0F};
+    float vy{0.0F};
+    float radius{0.0F};
+    int health{0};
+    int maxHealth{0};
+};
+
+struct DamageNumberHud {
+    float x{0.0F};
+    float y{0.0F};
+    int amount{0};
+    float alpha{1.0F};
+    bool isPlayer{false};
+    bool isLoot{false};
+};
+
+struct ChatLineHud {
+    std::string text{};
+    bool isSystem{false};
+    float age{0.0F};
+};
+
 struct HudState {
     bool breakActive{false};
     int breakTileX{0};
@@ -90,6 +136,19 @@ struct HudState {
     HotbarSlotHud carriedItem{};
     int hotbarCount{0};
     std::array<HotbarSlotHud, kMaxHotbarSlots> hotbarSlots{};
+    HotbarSlotHud ammoSlot{};
+    bool ammoSlotHovered{false};
+    bool ammoSlotVisible{false};
+    int ammoSlotX{0};
+    int ammoSlotY{0};
+    int ammoSlotW{0};
+    int ammoSlotH{0};
+    bool trashSlotHovered{false};
+    bool trashSlotVisible{false};
+    int trashSlotX{0};
+    int trashSlotY{0};
+    int trashSlotW{0};
+    int trashSlotH{0};
     bool useCamera{false};
     float cameraX{0.0F};
     float cameraY{0.0F};
@@ -101,7 +160,7 @@ struct HudState {
     bool isNight{false};
     int craftSelection{0};
     int craftRecipeCount{0};
-    std::array<CraftHudEntry, kMaxCraftRecipes> craftRecipes{};
+    std::vector<CraftHudEntry> craftRecipes{};
     int craftScrollOffset{0};
     int craftVisibleRows{0};
     int craftPanelX{0};
@@ -118,6 +177,7 @@ struct HudState {
     bool craftScrollbarVisible{false};
     int equipmentSlotCount{0};
     std::array<EquipmentSlotHud, kTotalEquipmentSlots> equipmentSlots{};
+    float bowDrawProgress{0.0F};
     bool swordSwingActive{false};
     float swordSwingX{0.0F};
     float swordSwingY{0.0F};
@@ -125,12 +185,24 @@ struct HudState {
     float swordSwingHalfHeight{0.0F};
     int projectileCount{0};
     std::array<ProjectileHudEntry, kMaxProjectiles> projectiles{};
+    int enemyProjectileCount{0};
+    std::array<EnemyProjectileHudEntry, kMaxEnemyProjectiles> enemyProjectiles{};
+    int flyingEnemyCount{0};
+    std::array<FlyingEnemyHudEntry, kMaxFlyingEnemies> flyingEnemies{};
+    int wormCount{0};
+    std::array<WormHudEntry, kMaxWorms> worms{};
+    std::vector<DamageNumberHud> damageNumbers{};
     int mouseX{0};
     int mouseY{0};
     float perfFrameMs{0.0F};
     float perfUpdateMs{0.0F};
     float perfRenderMs{0.0F};
     float perfFps{0.0F};
+    bool consoleOpen{false};
+    std::string consoleInput{};
+    std::string consoleStatus{};
+    std::size_t consoleCursor{0};
+    std::vector<ChatLineHud> chatLines{};
 };
 
 } // namespace terraria::rendering

@@ -6,26 +6,19 @@
 
 namespace terraria::entities {
 
-inline constexpr float kZombieHalfWidth = 0.35F;
-inline constexpr float kZombieHeight = 1.6F;
+inline constexpr float kWormRadius = 0.5F;
 
-struct Zombie {
+struct Worm {
     Vec2 position{};
     Vec2 velocity{};
-    bool onGround{false};
-    int maxHealth{100};
-    int health{100};
+    int maxHealth{80};
+    int health{80};
     float attackCooldown{0.0F};
-    float jumpCooldown{0.0F};
-    int id{0};
-    float stuckTimer{0.0F};
-    float lastX{0.0F};
-    float pathTimer{0.0F};
-    int desiredDir{0};
-    float lungeCooldown{0.0F};
-    float lungeTimer{0.0F};
     float knockbackTimer{0.0F};
     float knockbackVelocity{0.0F};
+    float airTimer{0.0F};
+    float lungeCooldown{0.0F};
+    int id{0};
     bool droppedLoot{false};
     float offscreenTimer{0.0F};
 

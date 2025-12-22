@@ -61,15 +61,19 @@ public:
     Vec2 velocity() const { return velocity_; }
     void setOnGround(bool grounded) { onGround_ = grounded; }
     bool onGround() const { return onGround_; }
-    void applyDamage(int amount) {
+    int applyDamage(int amount) {
         const int mitigated = std::max(1, amount - equipmentStats_.defense);
         health_ = std::max(0, health_ - mitigated);
+        return mitigated;
     }
     void heal(int amount) { health_ = std::min(maxHealth(), health_ + amount); }
     int health() const { return health_; }
     void resetHealth() { health_ = maxHealth(); }
     int inventoryCount(world::TileType type) const;
     bool consumeFromInventory(world::TileType type, int amount);
+    bool consumeAmmo(world::TileType type, int amount);
+    InventorySlot& ammoSlot() { return ammoSlot_; }
+    const InventorySlot& ammoSlot() const { return ammoSlot_; }
     bool consumeSlot(int slotIndex, int amount = 1);
     std::span<InventorySlot, kHotbarSlots> hotbar() { return std::span<InventorySlot, kHotbarSlots>(inventory_.data(), kHotbarSlots); }
     std::span<const InventorySlot, kHotbarSlots> hotbar() const {
@@ -108,6 +112,7 @@ private:
     bool onGround_{false};
     int health_{kPlayerMaxHealth};
     std::array<InventorySlot, kInventorySlots> inventory_{};
+    InventorySlot ammoSlot_{};
     std::array<ArmorId, static_cast<std::size_t>(ArmorSlot::Count)> equippedArmor_{};
     std::array<AccessoryId, kAccessorySlotCount> equippedAccessories_{};
     EquipmentStats equipmentStats_{};
@@ -205,6 +210,9 @@ inline int terraria::entities::Player::inventoryCount(world::TileType type) cons
             total += slot.count;
         }
     }
+    if (ammoSlot_.isBlock() && ammoSlot_.blockType == type) {
+        total += ammoSlot_.count;
+    }
     return total;
 }
 
@@ -228,6 +236,49 @@ inline bool terraria::entities::Player::consumeFromInventory(world::TileType typ
         return true;
     }
     int remaining = amount;
+    if (ammoSlot_.isBlock() && ammoSlot_.blockType == type) {
+        const int used = std::min(ammoSlot_.count, remaining);
+        ammoSlot_.count -= used;
+        remaining -= used;
+        if (ammoSlot_.count <= 0) {
+            ammoSlot_.clear();
+        }
+        if (remaining <= 0) {
+            return true;
+        }
+    }
+    for (auto& slot : inventory_) {
+        if (slot.isBlock() && slot.blockType == type) {
+            const int used = std::min(slot.count, remaining);
+            slot.count -= used;
+            remaining -= used;
+            if (slot.count <= 0) {
+                slot.clear();
+            }
+            if (remaining <= 0) {
+                break;
+            }
+        }
+    }
+    return remaining <= 0;
+}
+
+inline bool terraria::entities::Player::consumeAmmo(world::TileType type, int amount) {
+    if (amount <= 0) {
+        return true;
+    }
+    int remaining = amount;
+    if (ammoSlot_.isBlock() && ammoSlot_.blockType == type) {
+        const int used = std::min(ammoSlot_.count, remaining);
+        ammoSlot_.count -= used;
+        remaining -= used;
+        if (ammoSlot_.count <= 0) {
+            ammoSlot_.clear();
+        }
+    }
+    if (remaining <= 0) {
+        return true;
+    }
     for (auto& slot : inventory_) {
         if (slot.isBlock() && slot.blockType == type) {
             const int used = std::min(slot.count, remaining);

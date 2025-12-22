@@ -13,6 +13,8 @@ enum class TileType : std::uint8_t {
     CopperOre,
     IronOre,
     GoldOre,
+    Arrow,
+    Coin,
     Wood,
     Leaves,
     WoodPlank,

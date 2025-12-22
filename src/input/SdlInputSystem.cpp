@@ -17,6 +17,7 @@ public:
                 throw std::runtime_error(std::string("Failed to init SDL events: ") + SDL_GetError());
             }
         }
+        SDL_StartTextInput();
     }
 
     void poll() override {
@@ -31,6 +32,13 @@ public:
         state_.inventoryToggle = false;
         state_.inventoryClick = false;
         state_.inventoryRightClick = false;
+        state_.consoleToggle = false;
+        state_.consoleSlash = false;
+        state_.consoleSubmit = false;
+        state_.consoleBackspace = false;
+        state_.consoleLeft = false;
+        state_.consoleRight = false;
+        state_.textInput.clear();
         SDL_Event event{};
         const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
 
@@ -59,10 +67,28 @@ public:
                 case SDLK_DOWN:
                     state_.craftNext = true;
                     break;
-                case SDLK_f:
                 case SDLK_RETURN:
                 case SDLK_KP_ENTER:
                     state_.craftExecute = true;
+                    state_.consoleSubmit = true;
+                    break;
+                case SDLK_BACKQUOTE:
+                    state_.consoleToggle = true;
+                    ignoreTextInput_ = true;
+                    break;
+                case SDLK_SLASH:
+                    state_.consoleToggle = true;
+                    state_.consoleSlash = true;
+                    ignoreTextInput_ = true;
+                    break;
+                case SDLK_BACKSPACE:
+                    state_.consoleBackspace = true;
+                    break;
+                case SDLK_LEFT:
+                    state_.consoleLeft = true;
+                    break;
+                case SDLK_RIGHT:
+                    state_.consoleRight = true;
                     break;
                 default: break;
                 }
@@ -72,6 +98,12 @@ public:
                 } else if (event.button.button == SDL_BUTTON_RIGHT) {
                     state_.inventoryRightClick = true;
                 }
+            } else if (event.type == SDL_TEXTINPUT) {
+                if (ignoreTextInput_) {
+                    ignoreTextInput_ = false;
+                    continue;
+                }
+                state_.textInput += event.text.text;
             }
         }
 
@@ -112,12 +144,16 @@ public:
     bool shouldQuit() const override { return quit_; }
     const InputState& state() const override { return state_; }
 
-    void shutdown() override { SDL_QuitSubSystem(SDL_INIT_EVENTS); }
+    void shutdown() override {
+        SDL_StopTextInput();
+        SDL_QuitSubSystem(SDL_INIT_EVENTS);
+    }
 
 private:
     InputState state_{};
     bool quit_{false};
     bool cameraPressed_{false};
+    bool ignoreTextInput_{false};
 };
 
 } // namespace

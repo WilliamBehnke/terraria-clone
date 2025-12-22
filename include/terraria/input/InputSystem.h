@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 namespace terraria::input {
 
@@ -21,6 +22,13 @@ struct InputState {
     bool inventoryToggle{false};
     bool inventoryClick{false};
     bool inventoryRightClick{false};
+    bool consoleToggle{false};
+    bool consoleSlash{false};
+    bool consoleSubmit{false};
+    bool consoleBackspace{false};
+    bool consoleLeft{false};
+    bool consoleRight{false};
+    std::string textInput{};
 };
 
 class IInputSystem {
