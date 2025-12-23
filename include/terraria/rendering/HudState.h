@@ -231,6 +231,7 @@ struct HudState {
     bool menuHideGameUi{false};
     bool menuHideWorld{false};
     float minimapZoom{1.0F};
+    float fullscreenMapZoom{1.0F};
     bool minimapFullscreen{false};
     float minimapCenterX{0.0F};
     float minimapCenterY{0.0F};

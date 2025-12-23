@@ -158,20 +158,6 @@ void Game::shutdown() {
 void Game::handleInput() {
     inputSystem_->poll();
     const auto& inputState = inputSystem_->state();
-    if (inputState.minimapToggle) {
-        minimapFullscreen_ = !minimapFullscreen_;
-        minimapCenterX_ = player_.position().x;
-        minimapCenterY_ = player_.position().y;
-        const float worldW = static_cast<float>(world_.width());
-        const float worldH = static_cast<float>(world_.height());
-        if (worldW > 0.0F && worldH > 0.0F) {
-            const float fitZoom = std::max(worldW, worldH) / std::min(worldW, worldH);
-            minimapZoom_ = std::max(minimapZoom_, fitZoom);
-        }
-    }
-    if (minimapFullscreen_) {
-        return;
-    }
     if (menuSystem_.isGameplay() && inputState.menuBack) {
         if (chatConsole_.isOpen()) {
             chatConsole_.close();
@@ -254,16 +240,46 @@ void Game::handleInput() {
         }
         return;
     }
+    if (inputState.minimapToggle && !chatConsole_.isOpen()) {
+        minimapFullscreen_ = !minimapFullscreen_;
+        minimapCenterX_ = player_.position().x;
+        minimapCenterY_ = player_.position().y;
+        const float worldW = static_cast<float>(world_.width());
+        const float worldH = static_cast<float>(world_.height());
+        if (worldW > 0.0F && worldH > 0.0F) {
+            const float fitZoom = std::max(worldW, worldH) / std::min(worldW, worldH);
+            if (minimapFullscreen_) {
+                fullscreenMapZoom_ = std::max(fullscreenMapZoom_, 0.1F);
+            } else {
+                minimapZoom_ = std::max(minimapZoom_, fitZoom);
+            }
+        }
+    }
+    if (minimapFullscreen_) {
+        return;
+    }
     if (!chatConsole_.isOpen()) {
         if (inputState.minimapZoomIn) {
-            minimapZoom_ = std::min(32.0F, minimapZoom_ + 0.5F);
+            if (minimapFullscreen_) {
+                fullscreenMapZoom_ = std::min(32.0F, fullscreenMapZoom_ + 0.5F);
+            } else {
+                minimapZoom_ = std::min(32.0F, minimapZoom_ + 0.5F);
+            }
         }
         if (inputState.minimapZoomOut) {
-            minimapZoom_ = std::max(2.0F, minimapZoom_ - 0.5F);
+            if (minimapFullscreen_) {
+                fullscreenMapZoom_ = std::max(1.0F, fullscreenMapZoom_ - 0.5F);
+            } else {
+                minimapZoom_ = std::max(2.0F, minimapZoom_ - 0.5F);
+            }
         }
         const float fitZoom = std::max(static_cast<float>(world_.width()), static_cast<float>(world_.height()))
             / std::max(1.0F, std::min(static_cast<float>(world_.width()), static_cast<float>(world_.height())));
-        minimapZoom_ = std::max(minimapZoom_, fitZoom);
+        if (minimapFullscreen_) {
+            fullscreenMapZoom_ = std::max(fullscreenMapZoom_, 0.1F);
+        } else {
+            minimapZoom_ = std::max(minimapZoom_, fitZoom);
+        }
     }
     if (inputState.consoleToggle) {
         if (chatConsole_.isOpen()) {
@@ -411,24 +427,22 @@ void Game::update(float dt) {
     if (minimapFullscreen_) {
         const auto& inputState = inputSystem_->state();
         if (inputState.minimapZoomIn) {
-            minimapZoom_ = std::min(32.0F, minimapZoom_ + 0.5F);
+            fullscreenMapZoom_ = std::min(32.0F, fullscreenMapZoom_ + 0.5F);
         }
         if (inputState.minimapZoomOut) {
-            minimapZoom_ = std::max(2.0F, minimapZoom_ - 0.5F);
+            fullscreenMapZoom_ = std::max(1.0F, fullscreenMapZoom_ - 0.5F);
         }
         const float panSpeed = 220.0F;
         minimapCenterX_ += inputState.camMoveX * panSpeed * dt;
         minimapCenterY_ += inputState.camMoveY * panSpeed * dt;
         if (inputState.minimapDrag) {
-            const float dragScale = 0.16F;
+            const float dragScale = 1.0F;
             minimapCenterX_ -= static_cast<float>(inputState.mouseDeltaX) * dragScale;
             minimapCenterY_ -= static_cast<float>(inputState.mouseDeltaY) * dragScale;
         }
         const float worldW = static_cast<float>(world_.width());
         const float worldH = static_cast<float>(world_.height());
-        const float fitZoom = std::max(worldW, worldH) / std::max(1.0F, std::min(worldW, worldH));
-        minimapZoom_ = std::max(minimapZoom_, fitZoom);
-        const float zoom = minimapZoom_;
+        const float zoom = fullscreenMapZoom_;
         const float mapW = static_cast<float>(config_.windowWidth);
         const float mapH = static_cast<float>(config_.windowHeight);
         const float basePerPixelX = worldW / std::max(1.0F, mapW);
@@ -1237,6 +1251,7 @@ void Game::updateHudState() {
     hudState_.mouseX = std::clamp(inputState.mouseX, 0, config_.windowWidth);
     hudState_.mouseY = std::clamp(inputState.mouseY, 0, config_.windowHeight);
     hudState_.minimapZoom = minimapZoom_;
+    hudState_.fullscreenMapZoom = fullscreenMapZoom_;
     hudState_.minimapFullscreen = minimapFullscreen_;
     hudState_.minimapCenterX = minimapCenterX_;
     hudState_.minimapCenterY = minimapCenterY_;
@@ -1447,6 +1462,17 @@ void Game::executeConsoleCommand(const std::string& text) {
         } else {
             chatConsole_.addMessage("USAGE TIME_SET 0-" + std::to_string(static_cast<int>(dayLength_)), true);
         }
+        return;
+    }
+    if (verb == "reveal_map") {
+        const std::string mapKey = currentMapKey();
+        if (mapKey.empty()) {
+            chatConsole_.addMessage("NO WORLD", true);
+            return;
+        }
+        player_.ensureExploredSize(mapKey, world_.width(), world_.height());
+        player_.revealRect(mapKey, 0, 0, world_.width(), world_.height());
+        chatConsole_.addMessage("MAP REVEALED", true);
         return;
     }
     if (verb == "locate") {

@@ -114,6 +114,7 @@ private:
     bool paused_{false};
     bool requestQuit_{false};
     float minimapZoom_{1.0F};
+    float fullscreenMapZoom_{1.0F};
     bool minimapFullscreen_{false};
     float minimapCenterX_{0.0F};
     float minimapCenterY_{0.0F};

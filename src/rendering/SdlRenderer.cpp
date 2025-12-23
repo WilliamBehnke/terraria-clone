@@ -1138,7 +1138,10 @@ private:
 
         const float fitZoom = std::max(static_cast<float>(world.width()), static_cast<float>(world.height()))
             / std::max(1.0F, std::min(static_cast<float>(world.width()), static_cast<float>(world.height())));
-        const float zoom = std::max(std::clamp(hud.minimapZoom, 2.0F, 32.0F), fitZoom);
+        const float zoomSource = hud.minimapFullscreen ? hud.fullscreenMapZoom : hud.minimapZoom;
+        const float minZoom = hud.minimapFullscreen ? 1.0F : 2.0F;
+        const float clampedZoom = std::clamp(zoomSource, minZoom, 32.0F);
+        const float zoom = hud.minimapFullscreen ? clampedZoom : std::max(clampedZoom, fitZoom);
         const float basePerPixelX = static_cast<float>(world.width()) / static_cast<float>(mapWidth);
         const float basePerPixelY = static_cast<float>(world.height()) / static_cast<float>(mapHeight);
         const float worldPerPixel = std::max(basePerPixelX, basePerPixelY) / zoom;
@@ -1201,12 +1204,19 @@ private:
             const int tileY = std::clamp(static_cast<int>(std::floor(hoverWorldY)), 0, world.height() - 1);
             SDL_Color textColor{210, 210, 220, 255};
             drawNumber("X " + std::to_string(tileX), x + 8, y + 8, 2, textColor);
+            const float zoomValue = std::max(0.0F, hud.fullscreenMapZoom);
+            std::string zoomText = std::to_string(zoomValue);
+            const std::size_t dot = zoomText.find('.');
+            if (dot != std::string::npos && dot + 2 < zoomText.size()) {
+                zoomText = zoomText.substr(0, dot + 2);
+            }
             drawNumber("Y " + std::to_string(tileY), x + 8, y + 24, 2, textColor);
+            drawNumber("ZOOM " + zoomText + "X", x + 8, y + 40, 2, textColor);
             if (player.isExplored(hud.minimapWorldId, tileX, tileY)) {
                 const auto& tile = world.tile(tileX, tileY);
-                drawNumber(TileName(tile.type()), x + 8, y + 40, 2, textColor);
+                drawNumber(TileName(tile.type()), x + 8, y + 56, 2, textColor);
             } else {
-                drawNumber("UNKNOWN", x + 8, y + 40, 2, textColor);
+                drawNumber("UNKNOWN", x + 8, y + 56, 2, textColor);
             }
         }
     }

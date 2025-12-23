@@ -159,8 +159,7 @@ bool SaveManager::readCharacterHeader(const std::filesystem::path& path, Charact
         return false;
     }
     std::uint16_t version = 0;
-    if (!readValue(in, version)
-        || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != kSaveVersion)) {
+    if (!readValue(in, version) || version != kSaveVersion) {
         return false;
     }
     if (!readString(in, info.name)) {
@@ -206,8 +205,7 @@ bool SaveManager::readWorldHeader(const std::filesystem::path& path, WorldInfo& 
         return false;
     }
     std::uint16_t version = 0;
-    if (!readValue(in, version)
-        || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != kSaveVersion)) {
+    if (!readValue(in, version) || version != kSaveVersion) {
         return false;
     }
     if (!readString(in, info.name)) {
@@ -216,10 +214,8 @@ bool SaveManager::readWorldHeader(const std::filesystem::path& path, WorldInfo& 
     if (!readValue(in, info.width) || !readValue(in, info.height)) {
         return false;
     }
-    if (version >= 2) {
-        if (!readValue(in, info.seed) || !readValue(in, info.spawnX) || !readValue(in, info.spawnY)) {
-            return false;
-        }
+    if (!readValue(in, info.seed) || !readValue(in, info.spawnX) || !readValue(in, info.spawnY)) {
+        return false;
     }
     info.id = path.stem().string();
     return true;
@@ -276,8 +272,7 @@ bool SaveManager::loadCharacter(const std::string& id, entities::Player& player,
         return false;
     }
     std::uint16_t version = 0;
-    if (!readValue(in, version)
-        || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != kSaveVersion)) {
+    if (!readValue(in, version) || version != kSaveVersion) {
         return false;
     }
     if (!readString(in, outName)) {
@@ -318,51 +313,35 @@ bool SaveManager::loadCharacter(const std::string& id, entities::Player& player,
         player.equipAccessory(i, static_cast<entities::AccessoryId>(accessoryId));
     }
     player.clearExploredMaps();
-    if (version == 4) {
-        std::int32_t exploredWidth = 0;
-        std::int32_t exploredHeight = 0;
-        if (!readValue(in, exploredWidth) || !readValue(in, exploredHeight)) {
+    std::uint16_t mapCount = 0;
+    if (!readValue(in, mapCount)) {
+        return false;
+    }
+    for (std::uint16_t i = 0; i < mapCount; ++i) {
+        std::string worldId{};
+        if (!readString(in, worldId)) {
             return false;
         }
-        const std::int64_t total = static_cast<std::int64_t>(exploredWidth) * exploredHeight;
-        for (std::int64_t i = 0; i < total; ++i) {
+        std::int32_t width = 0;
+        std::int32_t height = 0;
+        if (!readValue(in, width) || !readValue(in, height)) {
+            return false;
+        }
+        if (width <= 0 || height <= 0) {
+            continue;
+        }
+        entities::Player::MapExploration map{};
+        map.width = width;
+        map.height = height;
+        map.data.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+        for (std::size_t idx = 0; idx < map.data.size(); ++idx) {
             std::uint8_t exploredValue = 0;
             if (!readValue(in, exploredValue)) {
                 return false;
             }
+            map.data[idx] = exploredValue;
         }
-    }
-    if (version >= 6) {
-        std::uint16_t mapCount = 0;
-        if (!readValue(in, mapCount)) {
-            return false;
-        }
-        for (std::uint16_t i = 0; i < mapCount; ++i) {
-            std::string worldId{};
-            if (!readString(in, worldId)) {
-                return false;
-            }
-            std::int32_t width = 0;
-            std::int32_t height = 0;
-            if (!readValue(in, width) || !readValue(in, height)) {
-                return false;
-            }
-            if (width <= 0 || height <= 0) {
-                continue;
-            }
-            entities::Player::MapExploration map{};
-            map.width = width;
-            map.height = height;
-            map.data.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
-            for (std::size_t idx = 0; idx < map.data.size(); ++idx) {
-                std::uint8_t exploredValue = 0;
-                if (!readValue(in, exploredValue)) {
-                    return false;
-                }
-                map.data[idx] = exploredValue;
-            }
-            player.setExploredMap(worldId, std::move(map));
-        }
+        player.setExploredMap(worldId, std::move(map));
     }
     player.setHealth(static_cast<int>(health));
     return true;
@@ -416,8 +395,7 @@ bool SaveManager::loadWorld(const std::string& id,
         return false;
     }
     std::uint16_t version = 0;
-    if (!readValue(in, version)
-        || (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != kSaveVersion)) {
+    if (!readValue(in, version) || version != kSaveVersion) {
         return false;
     }
     if (!readString(in, outName)) {
@@ -428,14 +406,8 @@ bool SaveManager::loadWorld(const std::string& id,
     if (!readValue(in, width) || !readValue(in, height)) {
         return false;
     }
-    if (version >= 2) {
-        if (!readValue(in, seed) || !readValue(in, spawnX) || !readValue(in, spawnY)) {
-            return false;
-        }
-    } else {
-        seed = 0;
-        spawnX = static_cast<float>(width) * 0.5F;
-        spawnY = 0.0F;
+    if (!readValue(in, seed) || !readValue(in, spawnX) || !readValue(in, spawnY)) {
+        return false;
     }
     float loadedTime = 0.0F;
     std::uint8_t nightFlag = 0;
@@ -453,16 +425,6 @@ bool SaveManager::loadWorld(const std::string& id,
                 return false;
             }
             world.setTile(x, y, static_cast<world::TileType>(typeValue), activeValue != 0);
-        }
-    }
-    if (version == 5) {
-        for (int y = 0; y < world.height(); ++y) {
-            for (int x = 0; x < world.width(); ++x) {
-                std::uint8_t exploredValue = 0;
-                if (!readValue(in, exploredValue)) {
-                    return false;
-                }
-            }
         }
     }
     timeOfDay = loadedTime;
