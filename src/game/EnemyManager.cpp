@@ -410,6 +410,8 @@ void EnemyManager::updateWorms(float dt, const ViewBounds& view) {
                                                             entities::kPlayerHalfWidth,
                                                             entities::kPlayerHeight);
 
+        entities::Vec2 desiredDir{0.0F, 0.0F};
+        bool hasDesiredDir = false;
         if (worm.airTimer > 0.0F) {
             worm.airTimer = std::max(0.0F, worm.airTimer - dt);
             const float gravity = (worm.velocity.y < 0.0F) ? kWormAirGravityUp : kWormAirGravity;
@@ -442,6 +444,8 @@ void EnemyManager::updateWorms(float dt, const ViewBounds& view) {
             if (distance > 0.01F) {
                 delta.x /= distance;
                 delta.y /= distance;
+                desiredDir = delta;
+                hasDesiredDir = true;
                 const float targetVX = delta.x * kWormMoveSpeed;
                 const float targetVY = delta.y * kWormMoveSpeed;
                 const float blend = std::clamp(kWormTurnRate * dt, 0.0F, 1.0F);
@@ -452,13 +456,27 @@ void EnemyManager::updateWorms(float dt, const ViewBounds& view) {
             }
         }
 
-        if (inSolid && worm.lungeCooldown <= 0.0F) {
+        bool edgeAhead = false;
+        if (inSolid && hasDesiredDir) {
+            const int stepX = (desiredDir.x > 0.2F) ? 1 : (desiredDir.x < -0.2F ? -1 : 0);
+            const int stepY = (desiredDir.y > 0.2F) ? 1 : (desiredDir.y < -0.2F ? -1 : 0);
+            if (stepX != 0 || stepY != 0) {
+                const int checkX = solidTileX + stepX;
+                const int checkY = solidTileY + stepY;
+                if (checkX < 0 || checkY < 0 || checkX >= world_.width() || checkY >= world_.height()
+                    || !physics_.isSolidTile(checkX, checkY)) {
+                    edgeAhead = true;
+                }
+            }
+        }
+
+        if (worm.airTimer <= 0.0F && worm.lungeCooldown <= 0.0F && inSolid) {
             const entities::Vec2 toPlayer{player_.position().x - worm.position.x,
                                           player_.position().y - worm.position.y};
             const float dist = std::sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y);
-            if (dist < kWormLungeRange) {
-                const float dirX = (dist > 0.01F) ? (toPlayer.x / dist) : 1.0F;
-                float dirY = (dist > 0.01F) ? (toPlayer.y / dist) : -1.0F;
+            if (dist < kWormLungeRange || edgeAhead) {
+                const float dirX = (dist > 0.01F) ? (toPlayer.x / dist) : (hasDesiredDir ? desiredDir.x : 1.0F);
+                float dirY = (dist > 0.01F) ? (toPlayer.y / dist) : (hasDesiredDir ? desiredDir.y : -1.0F);
                 dirY = std::clamp(dirY, -kWormLungeVerticalBias, kWormLungeVerticalBias);
                 const float len = std::sqrt(dirX * dirX + dirY * dirY);
                 const float normX = (len > 0.01F) ? (dirX / len) : dirX;
@@ -475,9 +493,12 @@ void EnemyManager::updateWorms(float dt, const ViewBounds& view) {
         worm.position.x = std::clamp(worm.position.x, 0.5F, static_cast<float>(world_.width() - 1));
         worm.position.y = std::clamp(worm.position.y, 2.0F, static_cast<float>(world_.height() - 2));
 
-        if (worm.airTimer <= 0.0F) {
-            const int tileX = static_cast<int>(std::floor(worm.position.x));
-            int tileY = static_cast<int>(std::floor(worm.position.y));
+        const int tileX = static_cast<int>(std::floor(worm.position.x));
+        int tileY = static_cast<int>(std::floor(worm.position.y));
+        const bool inSolidNow = physics_.isSolidTile(tileX, tileY);
+        if (worm.airTimer <= 0.0F && !inSolidNow) {
+            worm.airTimer = 0.1F;
+        } else if (worm.airTimer <= 0.0F) {
             int adjustSteps = 0;
             while (adjustSteps < 6 && !physics_.isSolidTile(tileX, tileY)) {
                 worm.position.y = std::min(worm.position.y + kWormRecenterSpeed, static_cast<float>(world_.height() - 2));
