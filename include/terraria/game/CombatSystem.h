@@ -33,6 +33,7 @@ public:
                          float damageScale = 1.0F,
                          float speedScale = 1.0F,
                          float gravityScale = 1.0F);
+    void reset();
     void fillHud(rendering::HudState& hud) const;
 
 private:

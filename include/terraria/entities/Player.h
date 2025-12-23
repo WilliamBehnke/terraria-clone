@@ -69,6 +69,7 @@ public:
     void heal(int amount) { health_ = std::min(maxHealth(), health_ + amount); }
     int health() const { return health_; }
     void resetHealth() { health_ = maxHealth(); }
+    void setHealth(int health) { health_ = std::clamp(health, 0, maxHealth()); }
     int inventoryCount(world::TileType type) const;
     bool consumeFromInventory(world::TileType type, int amount);
     bool consumeAmmo(world::TileType type, int amount);
@@ -98,6 +99,9 @@ public:
         }
         equippedAccessories_[static_cast<std::size_t>(index)] = id;
         recalcEquipmentStats();
+    }
+    const std::array<ArmorId, static_cast<std::size_t>(ArmorSlot::Count)>& equippedArmor() const {
+        return equippedArmor_;
     }
     int maxHealth() const { return kPlayerMaxHealth + equipmentStats_.maxHealthBonus; }
     int defense() const { return equipmentStats_.defense; }

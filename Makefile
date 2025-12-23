@@ -4,8 +4,7 @@ LDFLAGS ?=
 
 SDL_CFLAGS := $(shell sdl2-config --cflags)
 SDL_LIBS := $(shell sdl2-config --libs)
-
-CXXFLAGS += $(SDL_CFLAGS)
+CXXFLAGS += $(SDL_CFLAGS) -MMD -MP
 LDFLAGS += $(SDL_LIBS)
 
 SRC := $(shell find src -name '*.cpp')
@@ -23,6 +22,8 @@ $(TARGET): $(OBJ)
 build/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+-include $(OBJ:.o=.d)
 
 run: $(TARGET)
 	./$(TARGET)

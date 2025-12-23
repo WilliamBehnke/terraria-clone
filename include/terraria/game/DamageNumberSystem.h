@@ -12,6 +12,7 @@ public:
     void addDamage(const entities::Vec2& worldPos, int amount, bool isPlayer);
     void addLoot(const entities::Vec2& worldPos, int amount);
     void update(float dt);
+    void reset();
     void fillHud(rendering::HudState& hud) const;
 
 private:

@@ -252,6 +252,12 @@ public:
         SDL_SetRenderDrawColor(renderer_, sky.r, sky.g, sky.b, sky.a);
         SDL_RenderClear(renderer_);
 
+        if (hud.menuHideWorld) {
+            drawMenuOverlay(hud);
+            SDL_RenderPresent(renderer_);
+            return;
+        }
+
         const int tilesWide = config_.windowWidth / kTilePixels + 2;
         const int tilesTall = config_.windowHeight / kTilePixels + 2;
 
@@ -397,11 +403,14 @@ public:
         drawSwordSwing(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawDamageNumbers(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawPlayer(player, startX, startY, pixelOffsetX, pixelOffsetY);
-        drawStatusWidgets(hud);
-        drawChatOverlay(hud);
-        drawConsoleOverlay(hud);
-        drawInventoryOverlay(player, hud);
-        drawCraftingOverlay(hud);
+        if (!hud.menuHideGameUi) {
+            drawStatusWidgets(hud);
+            drawChatOverlay(hud);
+            drawConsoleOverlay(hud);
+            drawInventoryOverlay(player, hud);
+            drawCraftingOverlay(hud);
+        }
+        drawMenuOverlay(hud);
 
         SDL_RenderPresent(renderer_);
     }
@@ -976,7 +985,7 @@ private:
         drawNumber("X " + std::to_string(hud.playerTileX), coordPanel.x + 6, coordPanel.y + 4, 2, coordColor);
         drawNumber("Y " + std::to_string(hud.playerTileY), coordPanel.x + coordPanel.w / 2, coordPanel.y + 4, 2, coordColor);
 
-        const int perfWidth = coordWidth;
+        const int perfWidth = 170;
         const int perfHeight = 74;
         const int perfX = coordX;
         const int perfY = coordY + coordHeight + 8;
@@ -1055,6 +1064,98 @@ private:
             drawNumber(line.text, x + 6, y + 4 + i * lineHeight, 2, textColor);
         }
     }
+
+    void drawMenuOverlay(const HudState& hud) {
+        if (!hud.menuOpen) {
+            return;
+        }
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 140);
+        SDL_Rect overlay{0, 0, config_.windowWidth, config_.windowHeight};
+        SDL_RenderFillRect(renderer_, &overlay);
+
+        const int margin = 16;
+        const int maxVisible = 10;
+        const int lineHeight = 16;
+        const int headerHeight = 28;
+        const int footerHeight = hud.menuHint.empty() ? 8 : 24;
+        const int entryCount = static_cast<int>(hud.menuEntries.size());
+        const int visibleCount = std::min(maxVisible, entryCount);
+        const int panelWidth = std::min(360, config_.windowWidth - margin * 2);
+        const int panelHeight = headerHeight + visibleCount * lineHeight + footerHeight;
+        const int x = (config_.windowWidth - panelWidth) / 2;
+        const int y = (config_.windowHeight - panelHeight) / 2;
+
+        SDL_Rect panel{x, y, panelWidth, panelHeight};
+        SDL_SetRenderDrawColor(renderer_, 12, 12, 16, 230);
+        SDL_RenderFillRect(renderer_, &panel);
+        SDL_SetRenderDrawColor(renderer_, 80, 80, 90, 255);
+        SDL_RenderDrawRect(renderer_, &panel);
+
+        SDL_Color titleColor{230, 230, 230, 255};
+        drawNumber(hud.menuTitle, x + 12, y + 8, 2, titleColor);
+
+        if (entryCount > 0) {
+            int startIndex = 0;
+            if (entryCount > visibleCount) {
+                startIndex = std::clamp(hud.menuSelected - visibleCount / 2, 0, entryCount - visibleCount);
+            }
+            for (int i = 0; i < visibleCount; ++i) {
+                const int idx = startIndex + i;
+                const int rowY = y + headerHeight + i * lineHeight;
+                SDL_Rect row{x + 8, rowY, panelWidth - 16, lineHeight};
+                if (idx == hud.menuSelected) {
+                    SDL_SetRenderDrawColor(renderer_, 60, 70, 90, 230);
+                    SDL_RenderFillRect(renderer_, &row);
+                }
+                SDL_Color entryColor = (idx == hud.menuSelected)
+                    ? SDL_Color{240, 240, 240, 255}
+                    : SDL_Color{200, 200, 200, 255};
+                drawNumber(hud.menuEntries[static_cast<std::size_t>(idx)], row.x + 6, row.y + 3, 2, entryColor);
+            }
+        }
+
+        if (!hud.menuHint.empty()) {
+            SDL_Color hintColor{170, 180, 200, 255};
+            drawNumber(hud.menuHint, x + 12, y + panelHeight - 18, 2, hintColor);
+        }
+
+        if (!hud.menuDetailLines.empty()) {
+            const int detailWidth = std::min(300, config_.windowWidth - margin * 2);
+            const int detailHeight = std::max(60, static_cast<int>(hud.menuDetailLines.size()) * lineHeight + 24);
+            const int detailX = std::min(config_.windowWidth - detailWidth - margin, x + panelWidth + 16);
+            const int detailY = y;
+            SDL_Rect detail{detailX, detailY, detailWidth, detailHeight};
+            SDL_SetRenderDrawColor(renderer_, 10, 10, 14, 230);
+            SDL_RenderFillRect(renderer_, &detail);
+            SDL_SetRenderDrawColor(renderer_, 70, 70, 85, 255);
+            SDL_RenderDrawRect(renderer_, &detail);
+            SDL_Color detailTitle{220, 220, 220, 255};
+            if (!hud.menuDetailTitle.empty()) {
+                drawNumber(hud.menuDetailTitle, detailX + 10, detailY + 6, 2, detailTitle);
+            }
+            for (std::size_t i = 0; i < hud.menuDetailLines.size(); ++i) {
+                const int lineY = detailY + 20 + static_cast<int>(i) * lineHeight;
+                drawNumber(hud.menuDetailLines[i], detailX + 10, lineY, 2, SDL_Color{190, 190, 190, 255});
+            }
+        }
+
+        if (hud.menuEditActive) {
+            const int editHeight = 22;
+            const int editY = y + panelHeight + 10;
+            SDL_Rect editPanel{x, editY, panelWidth, editHeight};
+            SDL_SetRenderDrawColor(renderer_, 8, 8, 12, 220);
+            SDL_RenderFillRect(renderer_, &editPanel);
+            SDL_SetRenderDrawColor(renderer_, 70, 70, 80, 240);
+            SDL_RenderDrawRect(renderer_, &editPanel);
+            const std::string label = hud.menuEditLabel.empty() ? "" : (hud.menuEditLabel + " ");
+            drawNumber(label + hud.menuEditValue, editPanel.x + 8, editPanel.y + 4, 2, SDL_Color{220, 220, 220, 255});
+            const int caretX = editPanel.x + 8 + measureTextWidth(label + hud.menuEditValue, label.size() + hud.menuEditCursor, 2);
+            SDL_SetRenderDrawColor(renderer_, 230, 230, 230, 255);
+            SDL_Rect caret{caretX, editPanel.y + 4, 2, 12};
+            SDL_RenderFillRect(renderer_, &caret);
+        }
+    }
+
     void drawInventoryOverlay(const entities::Player& player, const HudState& hud) {
         (void)player;
         if (hud.inventorySlotCount <= 0) {
@@ -1876,7 +1977,7 @@ private:
                 cursorX += 4 * scale;
             } else if (c == '/') {
                 drawSlash(cursorX, y, scale, color);
-                cursorX += 4 * scale;
+                cursorX += 6 * scale;
             } else if (c == '.') {
                 drawDot(cursorX, y + 4 * scale, scale, color);
                 cursorX += 4 * scale;
@@ -1961,9 +2062,9 @@ private:
         const std::size_t limit = std::min(count, text.size());
         for (std::size_t i = 0; i < limit; ++i) {
             const char c = text[i];
-            if (c == ' ') {
-                width += 4 * scale;
-            } else if (c == '-' || c == '_' || c == '/' || c == '.' || c == '#' || c == ':') {
+            if (c == '/') {
+                width += 6 * scale;
+            } else if (c == '-' || c == '_' || c == ' ' || c == '.' || c == '#' || c == ':') {
                 width += 4 * scale;
             } else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
                 const char upper = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -1985,7 +2086,7 @@ private:
     void drawSlash(int x, int y, int scale, SDL_Color color) {
         SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
         for (int i = 0; i < 5; ++i) {
-            const int dx = (2 - i) * scale;
+            const int dx = (4 - i) * scale;
             const int dy = i * scale;
             SDL_Rect rect{x + dx, y + dy, scale, scale};
             SDL_RenderFillRect(renderer_, &rect);

@@ -203,6 +203,19 @@ struct HudState {
     std::string consoleStatus{};
     std::size_t consoleCursor{0};
     std::vector<ChatLineHud> chatLines{};
+    bool menuOpen{false};
+    std::string menuTitle{};
+    std::vector<std::string> menuEntries{};
+    int menuSelected{0};
+    std::string menuHint{};
+    std::string menuDetailTitle{};
+    std::vector<std::string> menuDetailLines{};
+    bool menuEditActive{false};
+    std::string menuEditLabel{};
+    std::string menuEditValue{};
+    std::size_t menuEditCursor{0};
+    bool menuHideGameUi{false};
+    bool menuHideWorld{false};
 };
 
 } // namespace terraria::rendering

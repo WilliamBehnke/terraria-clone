@@ -43,6 +43,10 @@ void DamageNumberSystem::update(float dt) {
                    numbers_.end());
 }
 
+void DamageNumberSystem::reset() {
+    numbers_.clear();
+}
+
 void DamageNumberSystem::fillHud(rendering::HudState& hud) const {
     hud.damageNumbers.clear();
     hud.damageNumbers.reserve(numbers_.size());

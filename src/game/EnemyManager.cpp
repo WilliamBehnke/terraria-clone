@@ -71,6 +71,20 @@ EnemyManager::EnemyManager(const core::AppConfig& config,
     spawnTimerWorms_ = wormTimerDist(rng_);
 }
 
+void EnemyManager::reset() {
+    zombies_.clear();
+    flyers_.clear();
+    worms_.clear();
+    enemyProjectiles_.clear();
+    spawnTimerZombies_ = 0.0F;
+    spawnTimerFlyers_ = 0.0F;
+    spawnTimerWorms_ = 0.0F;
+    nextZombieId_ = 1;
+    nextFlyerId_ = 1;
+    nextWormId_ = 1;
+    swoopTimer_ = 0.0F;
+}
+
 EnemyManager::ViewBounds EnemyManager::computeViewBounds(const entities::Vec2& cameraFocus) const {
     const int tilesWide = config_.windowWidth / static_cast<int>(kTilePixels) + 2;
     const int tilesTall = config_.windowHeight / static_cast<int>(kTilePixels) + 2;

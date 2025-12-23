@@ -38,14 +38,16 @@ public:
         state_.consoleBackspace = false;
         state_.consoleLeft = false;
         state_.consoleRight = false;
+        state_.menuUp = false;
+        state_.menuDown = false;
+        state_.menuSelect = false;
+        state_.menuBack = false;
         state_.textInput.clear();
         SDL_Event event{};
         const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
 
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
-                quit_ = true;
-            } else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
                 quit_ = true;
             } else if (event.type == SDL_KEYDOWN) {
                 switch (event.key.keysym.sym) {
@@ -62,15 +64,21 @@ public:
                 case SDLK_LEFTBRACKET:
                 case SDLK_UP:
                     state_.craftPrev = true;
+                    state_.menuUp = true;
                     break;
                 case SDLK_RIGHTBRACKET:
                 case SDLK_DOWN:
                     state_.craftNext = true;
+                    state_.menuDown = true;
                     break;
                 case SDLK_RETURN:
                 case SDLK_KP_ENTER:
                     state_.craftExecute = true;
                     state_.consoleSubmit = true;
+                    state_.menuSelect = true;
+                    break;
+                case SDLK_ESCAPE:
+                    state_.menuBack = true;
                     break;
                 case SDLK_BACKQUOTE:
                     state_.consoleToggle = true;

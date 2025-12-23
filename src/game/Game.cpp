@@ -1,9 +1,12 @@
 #include "terraria/game/Game.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cctype>
+#include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <sstream>
 
@@ -29,6 +32,7 @@ constexpr float kNightStart = 0.55F;
 constexpr float kNightEnd = 0.95F;
 constexpr float kPerfSmoothing = 0.1F;
 constexpr float kPi = 3.1415926535F;
+constexpr std::uint32_t kSeedSalt = 0x9E3779B9U;
 
 entities::ToolTier RequiredPickaxeTier(world::TileType type) {
     using entities::ToolTier;
@@ -76,6 +80,21 @@ float PickaxeSpeedBonus(entities::ToolTier tier) {
     return 1.0F + 0.2F * static_cast<float>(value);
 }
 
+std::uint32_t generateSeed() {
+    const auto now = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+    return static_cast<std::uint32_t>((now ^ (now >> 32)) + kSeedSalt);
+}
+
+void applyDefaultLoadout(entities::Player& player) {
+    player.resetHealth();
+    player.addTool(entities::ToolKind::Pickaxe, entities::ToolTier::Wood);
+    player.addTool(entities::ToolKind::Axe, entities::ToolTier::Wood);
+    player.addTool(entities::ToolKind::Shovel, entities::ToolTier::Wood);
+    player.addTool(entities::ToolKind::Hoe, entities::ToolTier::Wood);
+    player.addTool(entities::ToolKind::Sword, entities::ToolTier::Wood);
+    player.addTool(entities::ToolKind::Bow, entities::ToolTier::Wood);
+}
+
 } // namespace
 
 Game::Game(const core::AppConfig& config)
@@ -100,31 +119,13 @@ Game::Game(const core::AppConfig& config)
       dayLength_{kDayLengthSeconds} {}
 
 void Game::initialize() {
-    generator_.generate(world_);
-
-    const int spawnX = world_.width() / 2;
-    int spawnY = 0;
-    for (int y = 0; y < world_.height(); ++y) {
-        if (world_.tile(spawnX, y).active()) {
-            spawnY = (y > 0) ? y - 1 : 0;
-            break;
-        }
-    }
-    player_.setPosition({static_cast<float>(spawnX), static_cast<float>(spawnY)});
-    spawnPosition_ = player_.position();
-    player_.resetHealth();
-    player_.addTool(entities::ToolKind::Pickaxe, entities::ToolTier::Copper);
-    player_.addTool(entities::ToolKind::Axe, entities::ToolTier::Copper);
-    player_.addTool(entities::ToolKind::Shovel, entities::ToolTier::Copper);
-    player_.addTool(entities::ToolKind::Hoe, entities::ToolTier::Copper);
-    player_.addTool(entities::ToolKind::Sword, entities::ToolTier::Copper);
-    player_.addTool(entities::ToolKind::Bow, entities::ToolTier::Copper);
-    timeOfDay_ = dayLength_ * std::clamp(kNightStart + 0.05F, 0.0F, 1.0F);
-    isNight_ = true;
-
-    cameraPosition_ = clampCameraTarget(player_.position());
     renderer_->initialize();
     inputSystem_->initialize();
+    loadOrCreateSaves();
+    timeOfDay_ = 0.0F;
+    isNight_ = false;
+    cameraPosition_ = clampCameraTarget({static_cast<float>(world_.width()) * 0.5F,
+                                         static_cast<float>(world_.height()) * 0.5F});
 }
 
 bool Game::tick() {
@@ -144,10 +145,11 @@ bool Game::tick() {
     const float updateMs = std::chrono::duration<float, std::milli>(updateEnd - updateStart).count();
     const float renderMs = std::chrono::duration<float, std::milli>(frameEnd - renderStart).count();
     recordPerformanceMetrics(frameMs, updateMs, renderMs);
-    return !inputSystem_->shouldQuit();
+    return !inputSystem_->shouldQuit() && !requestQuit_;
 }
 
 void Game::shutdown() {
+    saveActiveSession();
     inputSystem_->shutdown();
     renderer_->shutdown();
 }
@@ -155,6 +157,88 @@ void Game::shutdown() {
 void Game::handleInput() {
     inputSystem_->poll();
     const auto& inputState = inputSystem_->state();
+    if (menuSystem_.isGameplay() && inputState.menuBack) {
+        if (chatConsole_.isOpen()) {
+            chatConsole_.close();
+        }
+        menuSystem_.openPause();
+        paused_ = true;
+        return;
+    }
+    if (!menuSystem_.isGameplay()) {
+        MenuSystem::MenuAction action{};
+        menuSystem_.handleInput(inputState, MenuSystem::MenuData{&characterList_, &worldList_}, action);
+        if (action.type == MenuSystem::MenuAction::Type::None) {
+            return;
+        }
+        if (action.type == MenuSystem::MenuAction::Type::Resume) {
+            paused_ = false;
+            return;
+        }
+        if (action.type == MenuSystem::MenuAction::Type::Save) {
+            saveActiveSession();
+            chatConsole_.addMessage("GAME SAVED", true);
+            menuSystem_.resumeGameplay();
+            paused_ = false;
+            return;
+        }
+        if (action.type == MenuSystem::MenuAction::Type::SaveExit) {
+            saveActiveSession();
+            requestQuit_ = true;
+            return;
+        }
+        if (action.type == MenuSystem::MenuAction::Type::SaveTitle) {
+            saveActiveSession();
+            clearActiveSession();
+            loadOrCreateSaves();
+            menuSystem_.setScreen(Screen::CharacterSelect);
+            paused_ = true;
+            return;
+        }
+        if (action.type == MenuSystem::MenuAction::Type::CreateCharacter) {
+            entities::Player temp;
+            applyDefaultLoadout(temp);
+            temp.setPosition({0.0F, 0.0F});
+            const std::string charId = saveManager_.createCharacterId(characterList_);
+            saveManager_.saveCharacter(charId, action.name, temp);
+            characterList_ = saveManager_.listCharacters();
+            for (std::size_t i = 0; i < characterList_.size(); ++i) {
+                if (characterList_[i].id == charId) {
+                    menuSystem_.setCharacterSelection(static_cast<int>(i));
+                    break;
+                }
+            }
+            return;
+        }
+        if (action.type == MenuSystem::MenuAction::Type::CreateWorld) {
+            const std::uint32_t seed = action.seed.empty()
+                ? generateSeed()
+                : static_cast<std::uint32_t>(std::strtoul(action.seed.c_str(), nullptr, 10));
+            world_ = world::World(config_.worldWidth, config_.worldHeight);
+            generator_.generate(world_, seed, action.genConfig);
+            const entities::Vec2 spawn = findSpawnPosition();
+            const std::string worldId = saveManager_.createWorldId(worldList_);
+            const float defaultTime = 0.0F;
+            saveManager_.saveWorld(worldId, action.name, world_, seed, spawn.x, spawn.y, defaultTime, false);
+            worldList_ = saveManager_.listWorlds();
+            for (std::size_t i = 0; i < worldList_.size(); ++i) {
+                if (worldList_[i].id == worldId) {
+                    menuSystem_.setWorldSelection(static_cast<int>(i));
+                    break;
+                }
+            }
+            return;
+        }
+        if (action.type == MenuSystem::MenuAction::Type::StartSession) {
+            if (action.characterIndex >= 0 && action.characterIndex < static_cast<int>(characterList_.size())
+                && action.worldIndex >= 0 && action.worldIndex < static_cast<int>(worldList_.size())) {
+                startSession(worldList_[static_cast<std::size_t>(action.worldIndex)],
+                             characterList_[static_cast<std::size_t>(action.characterIndex)]);
+            }
+            return;
+        }
+        return;
+    }
     if (inputState.consoleToggle) {
         if (chatConsole_.isOpen()) {
             if (!inputState.consoleSlash) {
@@ -247,8 +331,59 @@ void Game::handleInput() {
     craftingSystem_.handleInput(inventoryOpen);
 }
 
+void Game::saveActiveSession() {
+    if (activeWorldId_.empty() || activeCharacterId_.empty()) {
+        return;
+    }
+    saveManager_.saveWorld(activeWorldId_,
+                           activeWorldName_,
+                           world_,
+                           worldSeed_,
+                           worldSpawn_.x,
+                           worldSpawn_.y,
+                           timeOfDay_,
+                           isNight_);
+    saveManager_.saveCharacter(activeCharacterId_, activeCharacterName_, player_);
+}
+
+void Game::clearActiveSession() {
+    world_ = world::World(config_.worldWidth, config_.worldHeight);
+    player_ = entities::Player{};
+    enemyManager_.reset();
+    combatSystem_.reset();
+    damageNumbers_.reset();
+    breakState_ = {};
+    placeCooldown_ = 0.0F;
+    playerAttackCooldown_ = 0.0F;
+    bowDrawTimer_ = 0.0F;
+    moveInput_ = 0.0F;
+    jumpBufferTimer_ = 0.0F;
+    coyoteTimer_ = 0.0F;
+    jumpHeld_ = false;
+    prevJumpInput_ = false;
+    prevBreakHeld_ = false;
+    selectedHotbar_ = 0;
+    paused_ = false;
+    cameraMode_ = false;
+    cameraPosition_ = clampCameraTarget({static_cast<float>(world_.width()) * 0.5F,
+                                         static_cast<float>(world_.height()) * 0.5F});
+    timeOfDay_ = 0.0F;
+    isNight_ = false;
+    worldSeed_ = 0;
+    worldSpawn_ = {};
+    activeWorldId_.clear();
+    activeWorldName_.clear();
+    activeCharacterId_.clear();
+    activeCharacterName_.clear();
+    inventorySystem_.setOpen(false);
+    chatConsole_.close();
+}
+
 void Game::update(float dt) {
     chatConsole_.update(dt);
+    if (!menuSystem_.isGameplay()) {
+        return;
+    }
     if (paused_) {
         return;
     }
@@ -330,6 +465,9 @@ void Game::processActions(float dt) {
     if (chatConsole_.isOpen()) {
         return;
     }
+    if (!menuSystem_.isGameplay()) {
+        return;
+    }
     const bool equipmentHandled = inventorySystem_.handleInput();
     if (!paused_ && !inventorySystem_.isOpen()) {
         handleBreaking(dt);
@@ -339,6 +477,158 @@ void Game::processActions(float dt) {
     }
     craftingSystem_.handlePointerInput(inventorySystem_.isOpen(), equipmentHandled);
     craftingSystem_.update(dt);
+}
+
+void Game::loadOrCreateSaves() {
+    saveManager_.ensureDirectories();
+    characterList_ = saveManager_.listCharacters();
+    worldList_ = saveManager_.listWorlds();
+
+    if (worldList_.empty()) {
+        world_ = world::World(config_.worldWidth, config_.worldHeight);
+    }
+
+    if (characterList_.empty()) {
+        player_ = entities::Player{};
+    }
+
+    activeCharacterId_.clear();
+    activeCharacterName_.clear();
+    activeWorldId_.clear();
+    activeWorldName_.clear();
+    menuSystem_.setCharacterSelection(0);
+    menuSystem_.setWorldSelection(0);
+    menuSystem_.setScreen(Screen::CharacterSelect);
+    inventorySystem_.setOpen(false);
+    chatConsole_.close();
+}
+
+void Game::startSession(const WorldInfo& worldInfo, const CharacterInfo& characterInfo) {
+    activeWorldId_ = worldInfo.id;
+    activeWorldName_ = worldInfo.name;
+    activeCharacterId_ = characterInfo.id;
+    activeCharacterName_ = characterInfo.name;
+
+    std::string loadedWorldName{};
+    float loadedTime = 0.0F;
+    bool loadedNight = false;
+    std::uint32_t loadedSeed = 0;
+    float loadedSpawnX = 0.0F;
+    float loadedSpawnY = 0.0F;
+    if (!saveManager_.loadWorld(activeWorldId_, world_, loadedWorldName, loadedSeed, loadedSpawnX, loadedSpawnY, loadedTime, loadedNight)) {
+        world_ = world::World(config_.worldWidth, config_.worldHeight);
+        loadedSeed = (worldInfo.seed != 0) ? worldInfo.seed : generateSeed();
+        generator_.generate(world_, loadedSeed);
+        loadedWorldName = activeWorldName_;
+        const entities::Vec2 spawn = findSpawnPosition();
+        loadedSpawnX = spawn.x;
+        loadedSpawnY = spawn.y;
+        loadedTime = 0.0F;
+        loadedNight = false;
+        saveManager_.saveWorld(activeWorldId_,
+                               loadedWorldName,
+                               world_,
+                               loadedSeed,
+                               loadedSpawnX,
+                               loadedSpawnY,
+                               loadedTime,
+                               loadedNight);
+    }
+    activeWorldName_ = loadedWorldName;
+    timeOfDay_ = loadedTime;
+    isNight_ = loadedNight;
+    worldSeed_ = loadedSeed;
+    worldSpawn_ = {loadedSpawnX, loadedSpawnY};
+    if (worldSpawn_.y <= 0.5F) {
+        worldSpawn_ = findSpawnPosition();
+    }
+
+    std::string loadedCharName{};
+    if (!saveManager_.loadCharacter(activeCharacterId_, player_, loadedCharName)) {
+        player_ = entities::Player{};
+        applyDefaultLoadout(player_);
+        loadedCharName = activeCharacterName_;
+    }
+    activeCharacterName_ = loadedCharName;
+
+    entities::Vec2 desired = worldSpawn_;
+    entities::Vec2 spawnSafe = worldSpawn_;
+    if (!findNearestOpenSpot(worldSpawn_, spawnSafe)) {
+        spawnSafe = findSpawnPosition();
+        findNearestOpenSpot(spawnSafe, spawnSafe);
+    }
+    worldSpawn_ = spawnSafe;
+    entities::Vec2 safeSpot = desired;
+    if (!findNearestOpenSpot(desired, safeSpot)) {
+        safeSpot = spawnSafe;
+    }
+    player_.setPosition(safeSpot);
+    player_.setVelocity({0.0F, 0.0F});
+    player_.setOnGround(false);
+    spawnPosition_ = spawnSafe;
+    cameraPosition_ = clampCameraTarget(safeSpot);
+
+    enemyManager_.reset();
+    combatSystem_.reset();
+    damageNumbers_.reset();
+    breakState_ = {};
+    placeCooldown_ = 0.0F;
+    playerAttackCooldown_ = 0.0F;
+    bowDrawTimer_ = 0.0F;
+    moveInput_ = 0.0F;
+    jumpBufferTimer_ = 0.0F;
+    coyoteTimer_ = 0.0F;
+    jumpHeld_ = false;
+    prevJumpInput_ = false;
+    prevBreakHeld_ = false;
+    selectedHotbar_ = 0;
+    paused_ = false;
+    cameraMode_ = false;
+    inventorySystem_.setOpen(false);
+    chatConsole_.close();
+    menuSystem_.setScreen(Screen::Gameplay);
+}
+
+entities::Vec2 Game::findSpawnPosition() const {
+    const int spawnX = world_.width() / 2;
+    int spawnY = 0;
+    for (int y = 0; y < world_.height(); ++y) {
+        if (world_.tile(spawnX, y).active()) {
+            spawnY = (y > 0) ? y - 1 : 0;
+            break;
+        }
+    }
+    return {static_cast<float>(spawnX) + 0.5F, static_cast<float>(spawnY)};
+}
+
+bool Game::findNearestOpenSpot(const entities::Vec2& desired, entities::Vec2& outPos) const {
+    const float clampedX = std::clamp(desired.x, 0.0F, static_cast<float>(world_.width() - 1));
+    const float clampedY = std::clamp(desired.y, 0.0F, static_cast<float>(world_.height() - 1));
+    const int baseX = static_cast<int>(std::round(clampedX));
+    const int baseY = static_cast<int>(std::round(clampedY));
+    outPos = {clampedX, clampedY};
+    constexpr int kSearchRadius = 12;
+    for (int r = 0; r <= kSearchRadius; ++r) {
+        for (int dy = -r; dy <= r; ++dy) {
+            for (int dx = -r; dx <= r; ++dx) {
+                if (std::abs(dx) != r && std::abs(dy) != r) {
+                    continue;
+                }
+                const int tx = std::clamp(baseX + dx, 0, world_.width() - 1);
+                const int ty = std::clamp(baseY + dy, 0, world_.height() - 1);
+                if (world_.tile(tx, ty).active() && world_.tile(tx, ty).isSolid()) {
+                    continue;
+                }
+                entities::Vec2 candidate{static_cast<float>(tx) + 0.5F, static_cast<float>(ty)};
+                if (physics_.collidesAabb(candidate, entities::kPlayerHalfWidth, entities::kPlayerHeight)) {
+                    continue;
+                }
+                outPos = candidate;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool Game::cursorWorldTile(int& outX, int& outY) const {
@@ -856,6 +1146,7 @@ void Game::updateHudState() {
     hudState_.perfFps = perfFps_;
     hudState_.mouseX = std::clamp(inputState.mouseX, 0, config_.windowWidth);
     hudState_.mouseY = std::clamp(inputState.mouseY, 0, config_.windowHeight);
+    menuSystem_.fillHud(hudState_, MenuSystem::MenuData{&characterList_, &worldList_});
     chatConsole_.fillHud(hudState_);
 }
 
@@ -996,33 +1287,8 @@ void Game::executeConsoleCommand(const std::string& text) {
         float y = 0.0F;
         stream >> x >> y;
         if (!stream.fail()) {
-            const float clampedX = std::clamp(x, 0.0F, static_cast<float>(world_.width() - 1));
-            const float clampedY = std::clamp(y, 0.0F, static_cast<float>(world_.height() - 1));
-            const int baseX = static_cast<int>(std::round(clampedX));
-            const int baseY = static_cast<int>(std::round(clampedY));
-            entities::Vec2 bestPos{clampedX, clampedY};
-            bool found = false;
-            constexpr int kSearchRadius = 12;
-            for (int r = 0; r <= kSearchRadius && !found; ++r) {
-                for (int dy = -r; dy <= r && !found; ++dy) {
-                    for (int dx = -r; dx <= r && !found; ++dx) {
-                        if (std::abs(dx) != r && std::abs(dy) != r) {
-                            continue;
-                        }
-                        const int tx = std::clamp(baseX + dx, 0, world_.width() - 1);
-                        const int ty = std::clamp(baseY + dy, 0, world_.height() - 1);
-                        if (world_.tile(tx, ty).active() && world_.tile(tx, ty).isSolid()) {
-                            continue;
-                        }
-                        entities::Vec2 candidate{static_cast<float>(tx) + 0.5F, static_cast<float>(ty)};
-                        if (physics_.collidesAabb(candidate, entities::kPlayerHalfWidth, entities::kPlayerHeight)) {
-                            continue;
-                        }
-                        bestPos = candidate;
-                        found = true;
-                    }
-                }
-            }
+            entities::Vec2 bestPos{};
+            const bool found = findNearestOpenSpot({x, y}, bestPos);
             player_.setPosition(bestPos);
             player_.setVelocity({0.0F, 0.0F});
             player_.setOnGround(false);

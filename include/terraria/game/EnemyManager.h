@@ -24,6 +24,7 @@ public:
                  DamageNumberSystem& damageNumbers);
 
     void update(float dt, bool isNight, const entities::Vec2& cameraFocus);
+    void reset();
     void fillHud(rendering::HudState& hud) const;
     bool removeEnemyProjectilesInBox(const entities::Vec2& center, float halfWidth, float halfHeight);
     bool removeEnemyProjectileAt(const entities::Vec2& position, float radius);

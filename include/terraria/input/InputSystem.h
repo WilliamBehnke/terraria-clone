@@ -28,6 +28,10 @@ struct InputState {
     bool consoleBackspace{false};
     bool consoleLeft{false};
     bool consoleRight{false};
+    bool menuUp{false};
+    bool menuDown{false};
+    bool menuSelect{false};
+    bool menuBack{false};
     std::string textInput{};
 };
 

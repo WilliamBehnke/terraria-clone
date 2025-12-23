@@ -9,13 +9,16 @@
 #include "terraria/game/DamageNumberSystem.h"
 #include "terraria/game/EnemyManager.h"
 #include "terraria/game/InventorySystem.h"
+#include "terraria/game/MenuSystem.h"
 #include "terraria/game/PhysicsSystem.h"
+#include "terraria/game/SaveManager.h"
 #include "terraria/input/InputSystem.h"
 #include "terraria/rendering/Renderer.h"
 #include "terraria/world/World.h"
 #include "terraria/world/WorldGenerator.h"
 
 #include <chrono>
+#include <cstdint>
 #include <vector>
 #include <string>
 
@@ -34,6 +37,12 @@ private:
     void update(float dt);
     void render();
     void processActions(float dt);
+    void saveActiveSession();
+    void clearActiveSession();
+    void loadOrCreateSaves();
+    void startSession(const WorldInfo& worldInfo, const CharacterInfo& characterInfo);
+    entities::Vec2 findSpawnPosition() const;
+    bool findNearestOpenSpot(const entities::Vec2& desired, entities::Vec2& outPos) const;
     void executeConsoleCommand(const std::string& text);
     bool cursorWorldTile(int& outX, int& outY) const;
     bool cursorWorldPosition(entities::Vec2& outPos) const;
@@ -87,6 +96,8 @@ private:
     float timeOfDay_{0.0F};
     float dayLength_{180.0F};
     bool isNight_{false};
+    std::uint32_t worldSeed_{0};
+    entities::Vec2 worldSpawn_{};
     float moveInput_{0.0F};
     float jumpBufferTimer_{0.0F};
     float coyoteTimer_{0.0F};
@@ -99,7 +110,16 @@ private:
     float perfFps_{0.0F};
     float bowDrawTimer_{0.0F};
     bool paused_{false};
+    bool requestQuit_{false};
     ChatConsole chatConsole_{};
+    SaveManager saveManager_{};
+    MenuSystem menuSystem_{};
+    std::vector<CharacterInfo> characterList_{};
+    std::vector<WorldInfo> worldList_{};
+    std::string activeCharacterId_{};
+    std::string activeCharacterName_{};
+    std::string activeWorldId_{};
+    std::string activeWorldName_{};
 };
 
 } // namespace terraria::game

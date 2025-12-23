@@ -85,6 +85,13 @@ void CombatSystem::spawnProjectile(const entities::Vec2& direction,
     projectiles_.push_back(projectile);
 }
 
+void CombatSystem::reset() {
+    swordSwing_ = {};
+    swordSwingHitIds_.clear();
+    swordSwingHitFlyerIds_.clear();
+    projectiles_.clear();
+}
+
 void CombatSystem::update(float dt) {
     updateSwordSwing(dt);
     updateProjectiles(dt);
