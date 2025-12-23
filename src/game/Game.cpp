@@ -261,7 +261,7 @@ void Game::handleInput() {
     if (!chatConsole_.isOpen()) {
         if (inputState.minimapZoomIn) {
             if (minimapFullscreen_) {
-                fullscreenMapZoom_ = std::min(32.0F, fullscreenMapZoom_ + 0.5F);
+                fullscreenMapZoom_ = std::min(16.0F, fullscreenMapZoom_ + 0.5F);
             } else {
                 minimapZoom_ = std::min(32.0F, minimapZoom_ + 0.5F);
             }
@@ -427,7 +427,7 @@ void Game::update(float dt) {
     if (minimapFullscreen_) {
         const auto& inputState = inputSystem_->state();
         if (inputState.minimapZoomIn) {
-            fullscreenMapZoom_ = std::min(32.0F, fullscreenMapZoom_ + 0.5F);
+            fullscreenMapZoom_ = std::min(16.0F, fullscreenMapZoom_ + 0.5F);
         }
         if (inputState.minimapZoomOut) {
             fullscreenMapZoom_ = std::max(1.0F, fullscreenMapZoom_ - 0.5F);
