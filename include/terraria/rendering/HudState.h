@@ -234,6 +234,7 @@ struct HudState {
     bool minimapFullscreen{false};
     float minimapCenterX{0.0F};
     float minimapCenterY{0.0F};
+    std::string minimapWorldId{};
 };
 
 } // namespace terraria::rendering

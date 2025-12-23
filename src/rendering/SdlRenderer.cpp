@@ -1165,12 +1165,20 @@ private:
                     continue;
                 }
                 const int tileX = static_cast<int>(std::floor(sampleX));
-                const auto& tile = world.tile(tileX, tileY);
-                if (!tile.active() || tile.type() == world::TileType::Air) {
+                const Uint8 visibility = player.exploredValue(hud.minimapWorldId, tileX, tileY);
+                if (visibility == 0) {
                     continue;
                 }
-                const SDL_Color color = TileColor(tile.type());
-                SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, 220);
+                const auto& tile = world.tile(tileX, tileY);
+                SDL_Color color{};
+                if (!tile.active() || tile.type() == world::TileType::Air) {
+                    color = SDL_Color{16, 16, 20, 180};
+                } else {
+                    color = TileColor(tile.type());
+                }
+                const int baseAlpha = color.a ? color.a : 220;
+                const int finalAlpha = std::clamp(static_cast<int>(baseAlpha) * visibility / 255, 0, 255);
+                SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, static_cast<Uint8>(finalAlpha));
                 SDL_Rect dot{x + mx, y + my, sampleStep, sampleStep};
                 SDL_RenderFillRect(renderer_, &dot);
             }
@@ -1194,8 +1202,12 @@ private:
             SDL_Color textColor{210, 210, 220, 255};
             drawNumber("X " + std::to_string(tileX), x + 8, y + 8, 2, textColor);
             drawNumber("Y " + std::to_string(tileY), x + 8, y + 24, 2, textColor);
-            const auto& tile = world.tile(tileX, tileY);
-            drawNumber(TileName(tile.type()), x + 8, y + 40, 2, textColor);
+            if (player.isExplored(hud.minimapWorldId, tileX, tileY)) {
+                const auto& tile = world.tile(tileX, tileY);
+                drawNumber(TileName(tile.type()), x + 8, y + 40, 2, textColor);
+            } else {
+                drawNumber("UNKNOWN", x + 8, y + 40, 2, textColor);
+            }
         }
     }
 

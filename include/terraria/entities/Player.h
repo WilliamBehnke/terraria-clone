@@ -9,6 +9,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace terraria::entities {
 
@@ -107,10 +110,24 @@ public:
     int defense() const { return equipmentStats_.defense; }
     float moveSpeedMultiplier() const { return 1.0F + equipmentStats_.moveSpeedBonus; }
     float jumpBonus() const { return equipmentStats_.jumpBonus; }
+    void ensureExploredSize(const std::string& worldId, int width, int height);
+    bool isExplored(const std::string& worldId, int x, int y) const;
+    void setExplored(const std::string& worldId, int x, int y, bool explored);
+    std::uint8_t exploredValue(const std::string& worldId, int x, int y) const;
+    void setExploredValue(const std::string& worldId, int x, int y, std::uint8_t value);
+    void revealRect(const std::string& worldId, int startX, int startY, int width, int height);
+    void clearExplored(const std::string& worldId);
+    void clearExploredMaps() { exploredMaps_.clear(); }
+    struct MapExploration {
+        int width{0};
+        int height{0};
+        std::vector<std::uint8_t> data{};
+    };
+    const std::unordered_map<std::string, MapExploration>& exploredMaps() const { return exploredMaps_; }
+    void setExploredMap(const std::string& worldId, MapExploration map);
 
 private:
     void recalcEquipmentStats();
-
     Vec2 position_{};
     Vec2 velocity_{};
     bool onGround_{false};
@@ -120,6 +137,7 @@ private:
     std::array<ArmorId, static_cast<std::size_t>(ArmorSlot::Count)> equippedArmor_{};
     std::array<AccessoryId, kAccessorySlotCount> equippedAccessories_{};
     EquipmentStats equipmentStats_{};
+    std::unordered_map<std::string, MapExploration> exploredMaps_{};
 };
 
 } // namespace terraria::entities
@@ -309,4 +327,134 @@ inline void terraria::entities::Player::recalcEquipmentStats() {
     }
     equipmentStats_ = stats;
     health_ = std::min(health_, maxHealth());
+}
+
+inline void terraria::entities::Player::ensureExploredSize(const std::string& worldId, int width, int height) {
+    if (worldId.empty()) {
+        return;
+    }
+    if (width <= 0 || height <= 0) {
+        exploredMaps_.erase(worldId);
+        return;
+    }
+    auto& entry = exploredMaps_[worldId];
+    if (entry.width == width && entry.height == height && !entry.data.empty()) {
+        return;
+    }
+    entry.width = width;
+    entry.height = height;
+    entry.data.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
+}
+
+inline bool terraria::entities::Player::isExplored(const std::string& worldId, int x, int y) const {
+    if (worldId.empty()) {
+        return false;
+    }
+    auto it = exploredMaps_.find(worldId);
+    if (it == exploredMaps_.end()) {
+        return false;
+    }
+    const auto& entry = it->second;
+    if (x < 0 || y < 0 || x >= entry.width || y >= entry.height) {
+        return false;
+    }
+    if (entry.data.empty()) {
+        return false;
+    }
+    const std::size_t idx = static_cast<std::size_t>(y * entry.width + x);
+    return entry.data[idx] != 0;
+}
+
+inline void terraria::entities::Player::setExplored(const std::string& worldId, int x, int y, bool explored) {
+    setExploredValue(worldId, x, y, explored ? static_cast<std::uint8_t>(255) : static_cast<std::uint8_t>(0));
+}
+
+inline std::uint8_t terraria::entities::Player::exploredValue(const std::string& worldId, int x, int y) const {
+    if (worldId.empty()) {
+        return 0;
+    }
+    auto it = exploredMaps_.find(worldId);
+    if (it == exploredMaps_.end()) {
+        return 0;
+    }
+    const auto& entry = it->second;
+    if (x < 0 || y < 0 || x >= entry.width || y >= entry.height) {
+        return 0;
+    }
+    if (entry.data.empty()) {
+        return 0;
+    }
+    return entry.data[static_cast<std::size_t>(y * entry.width + x)];
+}
+
+inline void terraria::entities::Player::setExploredValue(const std::string& worldId,
+                                                         int x,
+                                                         int y,
+                                                         std::uint8_t value) {
+    if (worldId.empty()) {
+        return;
+    }
+    auto it = exploredMaps_.find(worldId);
+    if (it == exploredMaps_.end()) {
+        return;
+    }
+    auto& entry = it->second;
+    if (x < 0 || y < 0 || x >= entry.width || y >= entry.height) {
+        return;
+    }
+    if (entry.data.empty()) {
+        return;
+    }
+    const std::size_t idx = static_cast<std::size_t>(y * entry.width + x);
+    entry.data[idx] = std::max(entry.data[idx], value);
+}
+
+inline void terraria::entities::Player::revealRect(const std::string& worldId,
+                                                   int startX,
+                                                   int startY,
+                                                   int width,
+                                                   int height) {
+    if (worldId.empty() || width <= 0 || height <= 0) {
+        return;
+    }
+    auto it = exploredMaps_.find(worldId);
+    if (it == exploredMaps_.end()) {
+        return;
+    }
+    auto& entry = it->second;
+    if (entry.data.empty()) {
+        return;
+    }
+    const int minX = std::max(startX, 0);
+    const int minY = std::max(startY, 0);
+    const int maxX = std::min(startX + width - 1, entry.width - 1);
+    const int maxY = std::min(startY + height - 1, entry.height - 1);
+    if (minX > maxX || minY > maxY) {
+        return;
+    }
+    for (int y = minY; y <= maxY; ++y) {
+        const std::size_t row = static_cast<std::size_t>(y * entry.width);
+        for (int x = minX; x <= maxX; ++x) {
+            const std::size_t idx = row + static_cast<std::size_t>(x);
+            entry.data[idx] = std::max(entry.data[idx], static_cast<std::uint8_t>(255));
+        }
+    }
+}
+
+inline void terraria::entities::Player::clearExplored(const std::string& worldId) {
+    if (worldId.empty()) {
+        return;
+    }
+    auto it = exploredMaps_.find(worldId);
+    if (it == exploredMaps_.end()) {
+        return;
+    }
+    std::fill(it->second.data.begin(), it->second.data.end(), 0);
+}
+
+inline void terraria::entities::Player::setExploredMap(const std::string& worldId, MapExploration map) {
+    if (worldId.empty()) {
+        return;
+    }
+    exploredMaps_[worldId] = std::move(map);
 }

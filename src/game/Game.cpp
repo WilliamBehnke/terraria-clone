@@ -525,6 +525,7 @@ void Game::update(float dt) {
             dragon->health = dragon->maxHealth;
         }
     }
+    revealExploredTiles();
 }
 
 void Game::render() {
@@ -620,6 +621,7 @@ void Game::startSession(const WorldInfo& worldInfo, const CharacterInfo& charact
         loadedCharName = activeCharacterName_;
     }
     activeCharacterName_ = loadedCharName;
+    player_.ensureExploredSize(currentMapKey(), world_.width(), world_.height());
 
     entities::Vec2 desired = worldSpawn_;
     entities::Vec2 spawnSafe = worldSpawn_;
@@ -1238,6 +1240,7 @@ void Game::updateHudState() {
     hudState_.minimapFullscreen = minimapFullscreen_;
     hudState_.minimapCenterX = minimapCenterX_;
     hudState_.minimapCenterY = minimapCenterY_;
+    hudState_.minimapWorldId = currentMapKey();
     menuSystem_.fillHud(hudState_, MenuSystem::MenuData{&characterList_, &worldList_});
     chatConsole_.fillHud(hudState_);
 }
@@ -1247,6 +1250,78 @@ void Game::toggleCameraMode() {
     if (cameraMode_) {
         cameraPosition_ = clampCameraTarget(player_.position());
     }
+}
+
+void Game::revealExploredTiles() {
+    if (world_.width() <= 0 || world_.height() <= 0) {
+        return;
+    }
+    const std::string mapKey = currentMapKey();
+    if (mapKey.empty()) {
+        return;
+    }
+    player_.ensureExploredSize(mapKey, world_.width(), world_.height());
+    const entities::Vec2 focus = cameraFocus();
+    const float viewWidth = static_cast<float>(config_.windowWidth) / kTilePixels + 2.0F;
+    const float viewHeight = static_cast<float>(config_.windowHeight) / kTilePixels + 2.0F;
+    const int minX = std::max(0, static_cast<int>(std::floor(focus.x - viewWidth * 0.5F)));
+    const int minY = std::max(0, static_cast<int>(std::floor(focus.y - viewHeight * 0.5F)));
+    const int maxX = std::min(world_.width() - 1,
+                              static_cast<int>(std::floor(focus.x + viewWidth * 0.5F)));
+    const int maxY = std::min(world_.height() - 1,
+                              static_cast<int>(std::floor(focus.y + viewHeight * 0.5F)));
+    constexpr int kFogRadius = 6;
+    constexpr int kFogMinAlpha = 60;
+    constexpr int kFogMaxAlpha = 220;
+    const auto neighborIsSolid = [&](int x, int y) {
+        if (x < 0 || x >= world_.width() || y < 0 || y >= world_.height()) {
+            return true;
+        }
+        const auto& neighbor = world_.tile(x, y);
+        return neighbor.active() && neighbor.isSolid();
+    };
+    for (int y = minY; y <= maxY; ++y) {
+        for (int x = minX; x <= maxX; ++x) {
+            const auto& tile = world_.tile(x, y);
+            std::uint8_t value = 255;
+            if (tile.active() && tile.isSolid()) {
+                bool foundAir = false;
+                int distanceToAir = kFogRadius + 1;
+                for (int r = 1; r <= kFogRadius && !foundAir; ++r) {
+                    for (int dx = -r; dx <= r && !foundAir; ++dx) {
+                        const int dy = r - std::abs(dx);
+                        if (dy == 0) {
+                            if (!neighborIsSolid(x + dx, y)) {
+                                foundAir = true;
+                                distanceToAir = r;
+                            }
+                        } else {
+                            if (!neighborIsSolid(x + dx, y + dy) || !neighborIsSolid(x + dx, y - dy)) {
+                                foundAir = true;
+                                distanceToAir = r;
+                            }
+                        }
+                    }
+                }
+                if (!foundAir) {
+                    continue;
+                }
+                const int spread = std::max(1, kFogRadius - 1);
+                const int fogAlpha = kFogMinAlpha
+                    + (distanceToAir - 1) * (kFogMaxAlpha - kFogMinAlpha) / spread;
+                const int visibleAlpha = 255 - fogAlpha;
+                value = static_cast<std::uint8_t>(std::clamp(visibleAlpha, 0, 255));
+            }
+            player_.setExploredValue(mapKey, x, y, value);
+        }
+    }
+}
+
+std::string Game::currentMapKey() const {
+    if (activeWorldId_.empty()) {
+        return {};
+    }
+    return activeWorldId_ + "#" + std::to_string(worldSeed_);
 }
 
 void Game::executeConsoleCommand(const std::string& text) {

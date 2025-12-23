@@ -54,6 +54,8 @@ private:
     void handlePlacement(float dt);
     void updateHudState();
     void toggleCameraMode();
+    void revealExploredTiles();
+    std::string currentMapKey() const;
     entities::Vec2 cameraFocus() const;
     entities::Vec2 clampCameraTarget(const entities::Vec2& desired) const;
     static bool isTreeTile(world::TileType type);
