@@ -78,6 +78,7 @@ struct EnemyProjectileHudEntry {
     float x{0.0F};
     float y{0.0F};
     float radius{0.0F};
+    bool isFlame{false};
 };
 
 struct FlyingEnemyHudEntry {
@@ -96,6 +97,18 @@ struct WormHudEntry {
     float vx{0.0F};
     float vy{0.0F};
     float radius{0.0F};
+    int health{0};
+    int maxHealth{0};
+};
+
+struct DragonHudEntry {
+    bool active{false};
+    float x{0.0F};
+    float y{0.0F};
+    float halfWidth{0.0F};
+    float height{0.0F};
+    float wingPhase{0.0F};
+    float facing{1.0F};
     int health{0};
     int maxHealth{0};
 };
@@ -191,6 +204,7 @@ struct HudState {
     std::array<FlyingEnemyHudEntry, kMaxFlyingEnemies> flyingEnemies{};
     int wormCount{0};
     std::array<WormHudEntry, kMaxWorms> worms{};
+    DragonHudEntry dragon{};
     std::vector<DamageNumberHud> damageNumbers{};
     int mouseX{0};
     int mouseY{0};

@@ -24,6 +24,7 @@ CombatSystem::CombatSystem(world::World& world,
                            std::vector<entities::Zombie>& zombies,
                            std::vector<entities::FlyingEnemy>& flyers,
                            std::vector<entities::Worm>& worms,
+                           entities::Dragon* dragon,
                            EnemyManager& enemyManager)
     : world_{world},
       player_{player},
@@ -32,6 +33,7 @@ CombatSystem::CombatSystem(world::World& world,
       zombies_{zombies},
       flyers_{flyers},
       worms_{worms},
+      dragon_{dragon},
       enemyManager_{enemyManager} {}
 
 int CombatSystem::swordDamageForTier(entities::ToolTier tier) const {
@@ -65,6 +67,7 @@ void CombatSystem::startSwordSwing(float angleStart, float angleEnd, entities::T
     swordSwing_.angleEnd = angleEnd;
     swordSwingHitIds_.clear();
     swordSwingHitFlyerIds_.clear();
+    swordSwingHitDragon_ = false;
     updateSwordSwing(0.0F);
 }
 
@@ -89,6 +92,7 @@ void CombatSystem::reset() {
     swordSwing_ = {};
     swordSwingHitIds_.clear();
     swordSwingHitFlyerIds_.clear();
+    swordSwingHitDragon_ = false;
     projectiles_.clear();
 }
 
@@ -154,6 +158,18 @@ void CombatSystem::updateSwordSwing(float dt) {
                                  entities::kWormRadius * 2.0F)) {
             const float knockDir = (worm.position.x < swordSwing_.center.x) ? -1.0F : 1.0F;
             damageWorm(worm, swordSwing_.damage, knockDir);
+        }
+    }
+    if (dragon_ && dragon_->alive() && !swordSwingHitDragon_) {
+        if (physics_.aabbOverlap(swordSwing_.center,
+                                 swordSwing_.halfWidth,
+                                 swordSwing_.halfHeight * 2.0F,
+                                 dragon_->position,
+                                 entities::kDragonHalfWidth,
+                                 entities::kDragonHeight)) {
+            const float knockDir = (dragon_->position.x < swordSwing_.center.x) ? -1.0F : 1.0F;
+            damageDragon(*dragon_, swordSwing_.damage, knockDir);
+            swordSwingHitDragon_ = true;
         }
     }
     enemyManager_.removeEnemyProjectilesInBox(swordSwing_.center, swordSwing_.halfWidth, swordSwing_.halfHeight * 2.0F);
@@ -236,6 +252,21 @@ void CombatSystem::updateProjectiles(float dt) {
                 break;
             }
         }
+        if (projectile.lifetime <= 0.0F) {
+            continue;
+        }
+        if (dragon_ && dragon_->alive()) {
+            if (physics_.aabbOverlap(projectile.position,
+                                     projectile.radius,
+                                     projectile.radius * 2.0F,
+                                     dragon_->position,
+                                     entities::kDragonHalfWidth,
+                                     entities::kDragonHeight)) {
+                const float knockDir = (projectile.velocity.x < 0.0F) ? -1.0F : 1.0F;
+                damageDragon(*dragon_, projectile.damage, knockDir);
+                projectile.lifetime = 0.0F;
+            }
+        }
     }
     projectiles_.erase(std::remove_if(projectiles_.begin(),
                                       projectiles_.end(),
@@ -263,6 +294,13 @@ void CombatSystem::damageWorm(entities::Worm& worm, int amount, float knockbackD
     worm.knockbackTimer = 0.2F;
     worm.knockbackVelocity = knockbackDir * 7.5F;
     damageNumbers_.addDamage(worm.position, amount, false);
+}
+
+void CombatSystem::damageDragon(entities::Dragon& dragon, int amount, float knockbackDir) {
+    dragon.takeDamage(amount);
+    dragon.knockbackTimer = 0.2F;
+    dragon.knockbackVelocity = knockbackDir * 5.5F;
+    damageNumbers_.addDamage(dragon.position, amount, false);
 }
 
 void CombatSystem::fillHud(rendering::HudState& hud) const {

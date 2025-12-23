@@ -111,6 +111,7 @@ Game::Game(const core::AppConfig& config)
                     enemyManager_.zombies(),
                     enemyManager_.flyers(),
                     enemyManager_.worms(),
+                    enemyManager_.dragon(),
                     enemyManager_},
       renderer_{rendering::CreateSdlRenderer(config_)},
       inputSystem_{input::CreateSdlInputSystem()},
@@ -350,6 +351,7 @@ void Game::clearActiveSession() {
     world_ = world::World(config_.worldWidth, config_.worldHeight);
     player_ = entities::Player{};
     enemyManager_.reset();
+    enemyManager_.setDragonDen({}, 0.0F, 0.0F);
     combatSystem_.reset();
     damageNumbers_.reset();
     breakState_ = {};
@@ -569,6 +571,20 @@ void Game::startSession(const WorldInfo& worldInfo, const CharacterInfo& charact
     cameraPosition_ = clampCameraTarget(safeSpot);
 
     enemyManager_.reset();
+    const auto denInfo = generator_.dragonDenInfo(world_, worldSeed_);
+    const bool denOpen = denInfo.radiusX > 0 && denInfo.radiusY > 0
+        && denInfo.centerX >= 0 && denInfo.centerX < world_.width()
+        && denInfo.centerY >= 0 && denInfo.centerY < world_.height()
+        && !world_.tile(denInfo.centerX, denInfo.centerY).isSolid();
+    if (denOpen) {
+        const entities::Vec2 denCenter{static_cast<float>(denInfo.centerX) + 0.5F,
+                                       static_cast<float>(denInfo.centerY)};
+        enemyManager_.setDragonDen(denCenter,
+                                   static_cast<float>(denInfo.radiusX),
+                                   static_cast<float>(denInfo.radiusY));
+    } else {
+        enemyManager_.setDragonDen({}, 0.0F, 0.0F);
+    }
     combatSystem_.reset();
     damageNumbers_.reset();
     breakState_ = {};
@@ -1130,8 +1146,12 @@ void Game::updateHudState() {
     hudState_.playerHealth = player_.health();
     hudState_.playerMaxHealth = player_.maxHealth();
     hudState_.playerDefense = player_.defense();
-    hudState_.zombieCount =
-        static_cast<int>(enemyManager_.zombies().size() + enemyManager_.flyers().size() + enemyManager_.worms().size());
+    const entities::Dragon* dragon = enemyManager_.dragon();
+    const int dragonCount = (dragon && dragon->alive()) ? 1 : 0;
+    hudState_.zombieCount = static_cast<int>(enemyManager_.zombies().size()
+                                             + enemyManager_.flyers().size()
+                                             + enemyManager_.worms().size()
+                                             + dragonCount);
     hudState_.dayProgress = normalizedTimeOfDay();
     hudState_.isNight = isNight_;
     hudState_.bowDrawProgress = std::clamp(bowDrawTimer_ / kBowDrawTime, 0.0F, 1.0F);
@@ -1280,6 +1300,23 @@ void Game::executeConsoleCommand(const std::string& text) {
         } else {
             chatConsole_.addMessage("USAGE TIME_SET 0-" + std::to_string(static_cast<int>(dayLength_)), true);
         }
+        return;
+    }
+    if (verb == "locate") {
+        std::string target;
+        stream >> target;
+        if (target == "dragon_den") {
+            const auto denInfo = generator_.dragonDenInfo(world_, worldSeed_);
+            if (denInfo.radiusX > 0 && denInfo.radiusY > 0) {
+                chatConsole_.addMessage("DRAGON DEN " + std::to_string(denInfo.centerX) + " "
+                                            + std::to_string(denInfo.centerY),
+                                        true);
+            } else {
+                chatConsole_.addMessage("NO DRAGON DEN", true);
+            }
+            return;
+        }
+        chatConsole_.addMessage("USAGE: /locate dragon_den", true);
         return;
     }
     if (verb == "tp") {

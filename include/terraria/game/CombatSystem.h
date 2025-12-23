@@ -1,5 +1,6 @@
 #pragma once
 
+#include "terraria/entities/Dragon.h"
 #include "terraria/entities/FlyingEnemy.h"
 #include "terraria/entities/Worm.h"
 #include "terraria/entities/Player.h"
@@ -24,6 +25,7 @@ public:
                  std::vector<entities::Zombie>& zombies,
                  std::vector<entities::FlyingEnemy>& flyers,
                  std::vector<entities::Worm>& worms,
+                 entities::Dragon* dragon,
                  EnemyManager& enemyManager);
 
     void update(float dt);
@@ -66,6 +68,7 @@ private:
     void damageZombie(entities::Zombie& zombie, int amount, float knockbackDir);
     void damageFlyer(entities::FlyingEnemy& flyer, int amount, float knockbackDir);
     void damageWorm(entities::Worm& worm, int amount, float knockbackDir);
+    void damageDragon(entities::Dragon& dragon, int amount, float knockbackDir);
 
     world::World& world_;
     entities::Player& player_;
@@ -74,10 +77,12 @@ private:
     std::vector<entities::Zombie>& zombies_;
     std::vector<entities::FlyingEnemy>& flyers_;
     std::vector<entities::Worm>& worms_;
+    entities::Dragon* dragon_{nullptr};
     EnemyManager& enemyManager_;
     SwordSwingState swordSwing_{};
     std::vector<int> swordSwingHitIds_{};
     std::vector<int> swordSwingHitFlyerIds_{};
+    bool swordSwingHitDragon_{false};
     std::vector<Projectile> projectiles_{};
 };
 

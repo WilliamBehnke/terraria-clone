@@ -400,6 +400,7 @@ public:
         drawZombies(zombies, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawFlyingEnemies(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawWorms(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
+        drawDragon(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawSwordSwing(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawDamageNumbers(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawPlayer(player, startX, startY, pixelOffsetX, pixelOffsetY);
@@ -716,8 +717,17 @@ private:
             const int rectW = std::max(2, static_cast<int>(std::round((right - left) * kTilePixels)));
             const int rectH = std::max(2, static_cast<int>(std::round((bottom - top) * kTilePixels)));
             SDL_Rect rect{rectX, rectY, rectW, rectH};
-            SDL_SetRenderDrawColor(renderer_, 140, 120, 220, 220);
+            if (entry.isFlame) {
+                SDL_SetRenderDrawColor(renderer_, 240, 130, 60, 230);
+            } else {
+                SDL_SetRenderDrawColor(renderer_, 140, 120, 220, 220);
+            }
             SDL_RenderFillRect(renderer_, &rect);
+            if (entry.isFlame) {
+                SDL_SetRenderDrawColor(renderer_, 255, 200, 140, 200);
+                SDL_Rect core{rectX + rectW / 4, rectY + rectH / 4, rectW / 2, rectH / 2};
+                SDL_RenderFillRect(renderer_, &core);
+            }
         }
     }
 
@@ -865,6 +875,79 @@ private:
                 SDL_SetRenderDrawColor(renderer_, 220, 90, 120, 230);
                 SDL_RenderFillRect(renderer_, &bar);
             }
+        }
+    }
+
+    void drawDragon(const HudState& hud,
+                    int startX,
+                    int startY,
+                    int tilesWide,
+                    int tilesTall,
+                    int pixelOffsetX,
+                    int pixelOffsetY) {
+        const auto& entry = hud.dragon;
+        if (!entry.active) {
+            return;
+        }
+        const float left = entry.x - entry.halfWidth;
+        const float right = entry.x + entry.halfWidth;
+        const float bottom = entry.y;
+        const float top = entry.y - entry.height;
+        if (right < static_cast<float>(startX) || left > static_cast<float>(startX + tilesWide)
+            || bottom < static_cast<float>(startY) || top > static_cast<float>(startY + tilesTall)) {
+            return;
+        }
+        const float centerX = pixelOffsetX + (entry.x - static_cast<float>(startX)) * static_cast<float>(kTilePixels);
+        const float bottomY = pixelOffsetY + (entry.y - static_cast<float>(startY)) * static_cast<float>(kTilePixels);
+        const float bodyW = entry.halfWidth * 3.0F * static_cast<float>(kTilePixels);
+        const float bodyH = entry.height * static_cast<float>(kTilePixels);
+
+        constexpr int kDragonSegments = 7;
+        const float segScale = 1.45F;
+        const float segW = bodyH * 0.7F * segScale;
+        const float segH = bodyH * 0.38F * segScale;
+        const float segGap = segW * 0.65F;
+        const float segStartX = centerX - segGap * (static_cast<float>(kDragonSegments - 1) * 0.5F);
+        const float segY = bottomY - bodyH * 0.7F;
+        const std::array<float, kDragonSegments> yOffsets{
+            segH * 0.35F, segH * 0.22F, segH * 0.08F, segH * 0.18F, 0.0F, -segH * 0.2F, -segH * 0.32F
+        };
+        SDL_SetRenderDrawColor(renderer_, 210, 40, 50, 240);
+        const float dir = (entry.facing >= 0.0F) ? 1.0F : -1.0F;
+        for (int i = 0; i < kDragonSegments; ++i) {
+            const float cx = centerX + (segStartX - centerX) * dir + segGap * static_cast<float>(i) * dir;
+            const float cy = segY + yOffsets[static_cast<std::size_t>(i)];
+            if (i == kDragonSegments - 1) {
+                SDL_SetRenderDrawColor(renderer_, 190, 30, 40, 240);
+            } else {
+                SDL_SetRenderDrawColor(renderer_, 210, 40, 50, 240);
+            }
+            SDL_Rect segRect{static_cast<int>(std::round(cx - segW * 0.5F)),
+                             static_cast<int>(std::round(cy - segH * 0.5F)),
+                             static_cast<int>(std::round(segW)),
+                             static_cast<int>(std::round(segH))};
+            SDL_RenderFillRect(renderer_, &segRect);
+            SDL_SetRenderDrawColor(renderer_, 120, 20, 30, 230);
+            SDL_RenderDrawRect(renderer_, &segRect);
+        }
+
+        const int rectX =
+            pixelOffsetX + static_cast<int>(std::round((left - static_cast<float>(startX)) * kTilePixels));
+        const int rectY =
+            pixelOffsetY + static_cast<int>(std::round((top - static_cast<float>(startY)) * kTilePixels));
+        const int rectW = std::max(2, static_cast<int>(std::round((right - left) * kTilePixels)));
+        const int rectH = std::max(2, static_cast<int>(std::round((bottom - top) * kTilePixels)));
+
+        if (entry.maxHealth > 0) {
+            const float ratio = std::clamp(static_cast<float>(entry.health) / static_cast<float>(entry.maxHealth),
+                                           0.0F,
+                                           1.0F);
+            SDL_Rect barBg{rectX, rectY - 9, rectW, 5};
+            SDL_SetRenderDrawColor(renderer_, 10, 10, 10, 200);
+            SDL_RenderFillRect(renderer_, &barBg);
+            SDL_Rect bar{rectX, rectY - 9, static_cast<int>(std::round(rectW * ratio)), 5};
+            SDL_SetRenderDrawColor(renderer_, 240, 100, 90, 240);
+            SDL_RenderFillRect(renderer_, &bar);
         }
     }
 

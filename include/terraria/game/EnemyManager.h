@@ -1,6 +1,7 @@
 #pragma once
 
 #include "terraria/core/Application.h"
+#include "terraria/entities/Dragon.h"
 #include "terraria/entities/FlyingEnemy.h"
 #include "terraria/entities/Player.h"
 #include "terraria/entities/Worm.h"
@@ -28,6 +29,7 @@ public:
     void fillHud(rendering::HudState& hud) const;
     bool removeEnemyProjectilesInBox(const entities::Vec2& center, float halfWidth, float halfHeight);
     bool removeEnemyProjectileAt(const entities::Vec2& position, float radius);
+    void setDragonDen(const entities::Vec2& center, float radiusX, float radiusY);
 
     std::vector<entities::Zombie>& zombies() { return zombies_; }
     const std::vector<entities::Zombie>& zombies() const { return zombies_; }
@@ -35,6 +37,8 @@ public:
     const std::vector<entities::FlyingEnemy>& flyers() const { return flyers_; }
     std::vector<entities::Worm>& worms() { return worms_; }
     const std::vector<entities::Worm>& worms() const { return worms_; }
+    entities::Dragon* dragon() { return &dragon_; }
+    const entities::Dragon* dragon() const { return &dragon_; }
 
 private:
     struct ViewBounds {
@@ -50,6 +54,8 @@ private:
         float lifetime{0.0F};
         float radius{0.2F};
         int damage{0};
+        bool isFlame{false};
+        bool fromDragon{false};
     };
 
     ViewBounds computeViewBounds(const entities::Vec2& cameraFocus) const;
@@ -57,11 +63,13 @@ private:
     void updateZombies(float dt, bool isNight, const ViewBounds& view);
     void updateFlyers(float dt, bool isNight, const ViewBounds& view);
     void updateWorms(float dt, const ViewBounds& view);
+    void updateDragon(float dt);
     void updateEnemyProjectiles(float dt);
 
     void spawnZombie(const ViewBounds& view);
     void spawnFlyer(const ViewBounds& view);
     void spawnWorm(const ViewBounds& view);
+    void spawnDragon();
 
     int computeZombiePathDirection(const entities::Zombie& zombie) const;
     bool isWalkableSpot(int x, int footY) const;
@@ -76,6 +84,7 @@ private:
     std::vector<entities::Zombie> zombies_{};
     std::vector<entities::FlyingEnemy> flyers_{};
     std::vector<entities::Worm> worms_{};
+    entities::Dragon dragon_{};
     std::vector<EnemyProjectile> enemyProjectiles_{};
     std::mt19937 rng_{};
     float spawnTimerZombies_{0.0F};
@@ -85,6 +94,12 @@ private:
     int nextFlyerId_{1};
     int nextWormId_{1};
     float swoopTimer_{0.0F};
+    bool dragonActive_{false};
+    bool dragonSpawned_{false};
+    bool dragonDefeated_{false};
+    entities::Vec2 dragonDenCenter_{};
+    float dragonDenRadiusX_{0.0F};
+    float dragonDenRadiusY_{0.0F};
 };
 
 } // namespace terraria::game

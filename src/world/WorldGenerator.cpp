@@ -309,9 +309,33 @@ void WorldGenerator::generate(World& world, std::uint32_t seed, const WorldGenCo
 
     carveCaves(world, seed, config);
     placeOres(world, seed, config);
+    carveDragonDen(world, dragonDenInfo(world, seed));
 
     std::mt19937 rng{static_cast<std::uint32_t>(width * 977 + height * 131 + seed)};
     scatterSurfaceTrees(world, surfaceY, rng, config.treeDensity);
+}
+
+WorldGenerator::DragonDenInfo WorldGenerator::dragonDenInfo(const World& world, std::uint32_t seed) const {
+    const int width = world.width();
+    const int height = world.height();
+    if (width < 40 || height < 40) {
+        return {};
+    }
+    const int radiusX = std::clamp(width / 9, 16, 32);
+    const int radiusY = std::clamp(height / 14, 10, 22);
+    const int minX = radiusX + 6;
+    const int maxX = std::max(minX + 1, width - radiusX - 6);
+    const int minY = std::max(static_cast<int>(height * 0.65F), radiusY + 6);
+    const int maxY = std::max(minY + 1, static_cast<int>(height * 0.88F));
+    std::mt19937 rng{static_cast<std::uint32_t>(seed ^ 0xBADC0DEU ^ (width * 31U) ^ (height * 131U))};
+    std::uniform_int_distribution<int> xDist(minX, maxX);
+    std::uniform_int_distribution<int> yDist(minY, maxY);
+    DragonDenInfo info{};
+    info.centerX = xDist(rng);
+    info.centerY = yDist(rng);
+    info.radiusX = radiusX;
+    info.radiusY = radiusY;
+    return info;
 }
 
 void WorldGenerator::carveCaves(World& world, std::uint32_t seed, const WorldGenConfig& config) {
@@ -355,6 +379,59 @@ void WorldGenerator::carveCaves(World& world, std::uint32_t seed, const WorldGen
             if (y >= static_cast<float>(world.height() - 4)) {
                 y = static_cast<float>(world.height() - 5);
                 angle = -std::abs(angle);
+            }
+        }
+    }
+}
+
+void WorldGenerator::carveDragonDen(World& world, const DragonDenInfo& info) {
+    if (info.radiusX <= 0 || info.radiusY <= 0) {
+        return;
+    }
+    std::mt19937 rng{static_cast<std::uint32_t>(info.centerX * 977U + info.centerY * 131U)};
+    std::uniform_real_distribution<float> offsetDist(-0.6F, 0.6F);
+    const int oreClusters = 7;
+    const int oreRadius = 3;
+    for (int dy = -info.radiusY; dy <= info.radiusY; ++dy) {
+        for (int dx = -info.radiusX; dx <= info.radiusX; ++dx) {
+            const float nx = static_cast<float>(dx) / static_cast<float>(info.radiusX);
+            const float ny = static_cast<float>(dy) / static_cast<float>(info.radiusY);
+            const float dist = nx * nx + ny * ny;
+            if (dist > 1.0F) {
+                continue;
+            }
+            const int x = info.centerX + dx;
+            const int y = info.centerY + dy;
+            if (x < 1 || y < 1 || x >= world.width() - 1 || y >= world.height() - 1) {
+                continue;
+            }
+            if (dist >= 0.86F) {
+                world.setTile(x, y, TileType::GoldOre, true);
+            } else {
+                world.setTile(x, y, TileType::Air, false);
+            }
+        }
+    }
+
+    for (int i = 0; i < oreClusters; ++i) {
+        const float baseX = static_cast<float>(info.centerX)
+            + (static_cast<float>(info.radiusX) - 2.0F) * (0.6F + offsetDist(rng));
+        const float baseY = static_cast<float>(info.centerY)
+            + (static_cast<float>(info.radiusY) - 2.0F) * (0.6F + offsetDist(rng));
+        for (int oy = -oreRadius; oy <= oreRadius; ++oy) {
+            for (int ox = -oreRadius; ox <= oreRadius; ++ox) {
+                if (ox * ox + oy * oy > oreRadius * oreRadius) {
+                    continue;
+                }
+                const int x = static_cast<int>(std::round(baseX + static_cast<float>(ox)));
+                const int y = static_cast<int>(std::round(baseY + static_cast<float>(oy)));
+                if (x < 1 || y < 1 || x >= world.width() - 1 || y >= world.height() - 1) {
+                    continue;
+                }
+                if (!world.tile(x, y).active()) {
+                    continue;
+                }
+                world.setTileType(x, y, TileType::GoldOre);
             }
         }
     }

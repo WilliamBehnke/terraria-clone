@@ -1,6 +1,7 @@
 #include "terraria/game/EnemyManager.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -50,6 +51,32 @@ constexpr float kWormLungeVerticalBias = 0.85F;
 constexpr float kWormRecenterSpeed = 0.45F;
 constexpr float kWormSeparationRadius = 3.5F;
 constexpr float kWormSeparationStrength = 2.2F;
+constexpr float kDragonMoveSpeed = 5.4F;
+constexpr float kDragonAttackInterval = 1.1F;
+constexpr float kDragonFireInterval = 2.0F;
+constexpr float kDragonBreathDuration = 0.9F;
+constexpr float kDragonBreathTick = 0.12F;
+constexpr float kDragonBreathSpread = 0.25F;
+constexpr float kDragonBreathSpeed = 9.5F;
+constexpr float kDragonBreathLifetime = 0.9F;
+constexpr float kDragonBreathRadius = 0.35F;
+constexpr int kDragonSegments = 7;
+constexpr float kDragonSegmentGapFactor = 0.455F;
+constexpr float kDragonSegmentYFactor = 0.65F;
+constexpr float kDragonHeadYOffsetFactor = 0.04F;
+constexpr float kDragonChargeSpeed = 16.5F;
+constexpr float kDragonChargeDuration = 0.55F;
+constexpr float kDragonChargeCooldown = 4.2F;
+constexpr float kDragonVolleyInterval = 3.4F;
+constexpr float kDragonVolleySpread = 0.35F;
+constexpr float kDragonVolleySpeed = 11.5F;
+constexpr float kDragonVolleyLifetime = 2.8F;
+constexpr float kDragonVolleyRadius = 0.42F;
+constexpr int kDragonVolleyDamage = 20;
+constexpr int kDragonContactDamage = 26;
+constexpr int kDragonProjectileDamage = 22;
+constexpr int kDragonCoinMin = 12;
+constexpr int kDragonCoinMax = 22;
 }
 
 EnemyManager::EnemyManager(const core::AppConfig& config,
@@ -63,6 +90,7 @@ EnemyManager::EnemyManager(const core::AppConfig& config,
       physics_{physics},
       damageNumbers_{damageNumbers},
       rng_{static_cast<std::uint32_t>(config.worldWidth * 313 + config.worldHeight * 197)} {
+    dragon_.health = 0;
     std::uniform_real_distribution<float> zombieTimerDist(kZombieSpawnIntervalMin, kZombieSpawnIntervalMax);
     std::uniform_real_distribution<float> flyerTimerDist(kFlyerSpawnIntervalMin, kFlyerSpawnIntervalMax);
     std::uniform_real_distribution<float> wormTimerDist(kWormSpawnIntervalMin, kWormSpawnIntervalMax);
@@ -75,6 +103,8 @@ void EnemyManager::reset() {
     zombies_.clear();
     flyers_.clear();
     worms_.clear();
+    dragon_ = {};
+    dragon_.health = 0;
     enemyProjectiles_.clear();
     spawnTimerZombies_ = 0.0F;
     spawnTimerFlyers_ = 0.0F;
@@ -83,6 +113,12 @@ void EnemyManager::reset() {
     nextFlyerId_ = 1;
     nextWormId_ = 1;
     swoopTimer_ = 0.0F;
+    dragonActive_ = false;
+    dragonSpawned_ = false;
+    dragonDefeated_ = false;
+    dragonDenCenter_ = {};
+    dragonDenRadiusX_ = 0.0F;
+    dragonDenRadiusY_ = 0.0F;
 }
 
 EnemyManager::ViewBounds EnemyManager::computeViewBounds(const entities::Vec2& cameraFocus) const {
@@ -107,7 +143,29 @@ void EnemyManager::update(float dt, bool isNight, const entities::Vec2& cameraFo
     updateZombies(dt, isNight, view);
     updateFlyers(dt, isNight, view);
     updateWorms(dt, view);
+    updateDragon(dt);
     updateEnemyProjectiles(dt);
+}
+
+void EnemyManager::setDragonDen(const entities::Vec2& center, float radiusX, float radiusY) {
+    if (radiusX <= 1.0F || radiusY <= 1.0F) {
+        dragonActive_ = false;
+        dragonDenCenter_ = {};
+        dragonDenRadiusX_ = 0.0F;
+        dragonDenRadiusY_ = 0.0F;
+        dragonSpawned_ = false;
+        dragonDefeated_ = false;
+        dragon_.health = 0;
+        return;
+    }
+    dragonActive_ = true;
+    dragonDenCenter_ = center;
+    dragonDenRadiusX_ = radiusX;
+    dragonDenRadiusY_ = radiusY;
+    dragonSpawned_ = false;
+    dragonDefeated_ = false;
+    dragon_ = {};
+    dragon_.health = 0;
 }
 
 bool EnemyManager::removeEnemyProjectilesInBox(const entities::Vec2& center, float halfWidth, float halfHeight) {
@@ -133,6 +191,9 @@ bool EnemyManager::removeEnemyProjectileAt(const entities::Vec2& position, float
     bool removed = false;
     for (auto& projectile : enemyProjectiles_) {
         if (projectile.lifetime <= 0.0F) {
+            continue;
+        }
+        if (projectile.fromDragon) {
             continue;
         }
         if (physics_.aabbOverlap(position,
@@ -350,6 +411,8 @@ void EnemyManager::updateFlyers(float dt, bool isNight, const ViewBounds& view) 
             projectile.lifetime = kFlyerProjectileLifetime;
             projectile.radius = 0.18F;
             projectile.damage = kFlyerDamage;
+            projectile.isFlame = false;
+            projectile.fromDragon = false;
             enemyProjectiles_.push_back(projectile);
             flyer.attackCooldown = kFlyerAttackInterval;
         }
@@ -524,6 +587,173 @@ void EnemyManager::updateWorms(float dt, const ViewBounds& view) {
         worms_.end());
 }
 
+void EnemyManager::updateDragon(float dt) {
+    if (!dragonActive_ || dragonDefeated_) {
+        return;
+    }
+    if (!dragonSpawned_) {
+        spawnDragon();
+    }
+    if (!dragon_.alive()) {
+        if (!dragon_.droppedLoot) {
+            const int drop = std::uniform_int_distribution<int>(kDragonCoinMin, kDragonCoinMax)(rng_);
+            player_.addToInventory(world::TileType::Coin, drop);
+            damageNumbers_.addLoot(dragon_.position, drop);
+            dragon_.droppedLoot = true;
+        }
+        dragonDefeated_ = true;
+        return;
+    }
+
+    dragon_.attackCooldown = std::max(0.0F, dragon_.attackCooldown - dt);
+    dragon_.fireCooldown = std::max(0.0F, dragon_.fireCooldown - dt);
+    dragon_.breathTimer = std::max(0.0F, dragon_.breathTimer - dt);
+    dragon_.breathTick = std::max(0.0F, dragon_.breathTick - dt);
+    dragon_.chargeTimer = std::max(0.0F, dragon_.chargeTimer - dt);
+    dragon_.chargeCooldown = std::max(0.0F, dragon_.chargeCooldown - dt);
+    dragon_.volleyCooldown = std::max(0.0F, dragon_.volleyCooldown - dt);
+    dragon_.facing = (player_.position().x >= dragon_.position.x) ? 1.0F : -1.0F;
+
+    if (dragon_.knockbackTimer > 0.0F) {
+        dragon_.velocity.x = dragon_.knockbackVelocity;
+        dragon_.knockbackVelocity *= 0.9F;
+        dragon_.knockbackTimer = std::max(0.0F, dragon_.knockbackTimer - dt);
+    } else if (dragon_.chargeTimer > 0.0F) {
+        // Keep charge momentum during the dash.
+    } else {
+        const float bob = std::sin(swoopTimer_ * 1.05F) * 0.4F;
+        entities::Vec2 target = player_.position();
+        target.y += bob;
+        const float minX = dragonDenCenter_.x - dragonDenRadiusX_ + entities::kDragonHalfWidth;
+        const float maxX = dragonDenCenter_.x + dragonDenRadiusX_ - entities::kDragonHalfWidth;
+        const float minY = dragonDenCenter_.y - dragonDenRadiusY_ + entities::kDragonHeight;
+        const float maxY = dragonDenCenter_.y + dragonDenRadiusY_ - 0.4F;
+        target.x = std::clamp(target.x, minX, maxX);
+        target.y = std::clamp(target.y, minY, maxY);
+        entities::Vec2 delta{target.x - dragon_.position.x, target.y - dragon_.position.y};
+        const float dist = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+        if (dist > 0.05F) {
+            delta.x /= dist;
+            delta.y /= dist;
+            const entities::Vec2 desired{delta.x * kDragonMoveSpeed, delta.y * kDragonMoveSpeed};
+            const float blend = std::clamp(4.2F * dt, 0.0F, 1.0F);
+            dragon_.velocity.x += (desired.x - dragon_.velocity.x) * blend;
+            dragon_.velocity.y += (desired.y - dragon_.velocity.y) * blend;
+        } else {
+            dragon_.velocity.x *= 0.85F;
+            dragon_.velocity.y *= 0.85F;
+        }
+    }
+
+    dragon_.position.x += dragon_.velocity.x * dt;
+    dragon_.position.y += dragon_.velocity.y * dt;
+    const float minX = dragonDenCenter_.x - dragonDenRadiusX_ + entities::kDragonHalfWidth;
+    const float maxX = dragonDenCenter_.x + dragonDenRadiusX_ - entities::kDragonHalfWidth;
+    const float minY = dragonDenCenter_.y - dragonDenRadiusY_ + entities::kDragonHeight;
+    const float maxY = dragonDenCenter_.y + dragonDenRadiusY_ - 0.4F;
+    dragon_.position.x = std::clamp(dragon_.position.x, minX, maxX);
+    dragon_.position.y = std::clamp(dragon_.position.y, minY, maxY);
+
+    if (dragon_.chargeCooldown <= 0.0F && dragon_.chargeTimer <= 0.0F) {
+        entities::Vec2 dir{player_.position().x - dragon_.position.x,
+                           player_.position().y - dragon_.position.y};
+        const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (len > 0.01F) {
+            dir.x /= len;
+            dir.y /= len;
+        } else {
+            dir = {1.0F, 0.0F};
+        }
+        dragon_.velocity = {dir.x * kDragonChargeSpeed, dir.y * kDragonChargeSpeed};
+        dragon_.chargeTimer = kDragonChargeDuration;
+        dragon_.chargeCooldown = kDragonChargeCooldown;
+    }
+
+    if (dragon_.breathTimer <= 0.0F && dragon_.fireCooldown <= 0.0F) {
+        dragon_.breathTimer = kDragonBreathDuration;
+        dragon_.breathTick = 0.0F;
+        dragon_.fireCooldown = kDragonFireInterval;
+    }
+    if (dragon_.breathTimer > 0.0F && dragon_.breathTick <= 0.0F) {
+        const float headOffset = entities::kDragonHeight * kDragonSegmentGapFactor
+            * (static_cast<float>(kDragonSegments - 1) * 0.5F);
+        const entities::Vec2 headPos{dragon_.position.x + dragon_.facing * headOffset,
+                                     dragon_.position.y - entities::kDragonHeight * kDragonSegmentYFactor
+                                         + entities::kDragonHeight * kDragonHeadYOffsetFactor};
+        entities::Vec2 dir{player_.position().x - headPos.x,
+                           player_.position().y - headPos.y};
+        const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (len > 0.01F) {
+            dir.x /= len;
+            dir.y /= len;
+        } else {
+            dir = {dragon_.facing, 0.0F};
+        }
+        std::uniform_real_distribution<float> spreadDist(-kDragonBreathSpread, kDragonBreathSpread);
+        const float spread = spreadDist(rng_);
+        const float angle = std::atan2(dir.y, dir.x) + spread;
+        EnemyProjectile projectile{};
+        projectile.position = headPos;
+        projectile.velocity = {std::cos(angle) * kDragonBreathSpeed, std::sin(angle) * kDragonBreathSpeed};
+        projectile.lifetime = kDragonBreathLifetime;
+        projectile.radius = kDragonBreathRadius;
+        projectile.damage = kDragonProjectileDamage;
+        projectile.isFlame = true;
+        projectile.fromDragon = true;
+        enemyProjectiles_.push_back(projectile);
+        dragon_.breathTick = kDragonBreathTick;
+    }
+
+    if (dragon_.volleyCooldown <= 0.0F) {
+        const float headOffset = entities::kDragonHeight * kDragonSegmentGapFactor
+            * (static_cast<float>(kDragonSegments - 1) * 0.5F);
+        const entities::Vec2 headPos{dragon_.position.x + dragon_.facing * headOffset,
+                                     dragon_.position.y - entities::kDragonHeight * kDragonSegmentYFactor
+                                         + entities::kDragonHeight * kDragonHeadYOffsetFactor};
+        entities::Vec2 dir{player_.position().x - headPos.x,
+                           player_.position().y - headPos.y};
+        const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (len > 0.01F) {
+            dir.x /= len;
+            dir.y /= len;
+        } else {
+            dir = {dragon_.facing, 0.0F};
+        }
+        const float baseAngle = std::atan2(dir.y, dir.x);
+        const std::array<float, 3> offsets{-kDragonVolleySpread, 0.0F, kDragonVolleySpread};
+        for (float offset : offsets) {
+            const float angle = baseAngle + offset;
+            EnemyProjectile projectile{};
+            projectile.position = headPos;
+            projectile.velocity = {std::cos(angle) * kDragonVolleySpeed, std::sin(angle) * kDragonVolleySpeed};
+            projectile.lifetime = kDragonVolleyLifetime;
+            projectile.radius = kDragonVolleyRadius;
+            projectile.damage = kDragonVolleyDamage;
+            projectile.isFlame = false;
+            projectile.fromDragon = true;
+            enemyProjectiles_.push_back(projectile);
+        }
+        dragon_.volleyCooldown = kDragonVolleyInterval;
+    }
+
+    if (dragon_.attackCooldown <= 0.0F
+        && physics_.aabbOverlap(dragon_.position,
+                                entities::kDragonHalfWidth,
+                                entities::kDragonHeight,
+                                player_.position(),
+                                entities::kPlayerHalfWidth,
+                                entities::kPlayerHeight)) {
+        const int dealt = player_.applyDamage(kDragonContactDamage);
+        damageNumbers_.addDamage(player_.position(), dealt, true);
+        const float dir = (player_.position().x < dragon_.position.x) ? -1.0F : 1.0F;
+        entities::Vec2 knock = player_.velocity();
+        knock.x += dir * 9.0F;
+        knock.y = -10.0F;
+        player_.setVelocity(knock);
+        dragon_.attackCooldown = kDragonAttackInterval;
+    }
+}
+
 void EnemyManager::updateEnemyProjectiles(float dt) {
     for (auto& projectile : enemyProjectiles_) {
         projectile.lifetime -= dt;
@@ -681,6 +911,25 @@ void EnemyManager::spawnWorm(const ViewBounds& view) {
     worms_.push_back(worm);
 }
 
+void EnemyManager::spawnDragon() {
+    dragon_ = {};
+    dragon_.position = dragonDenCenter_;
+    dragon_.velocity = {0.0F, 0.0F};
+    dragon_.health = dragon_.maxHealth;
+    dragon_.attackCooldown = 0.0F;
+    dragon_.fireCooldown = 1.0F;
+    dragon_.breathTimer = 0.0F;
+    dragon_.breathTick = 0.0F;
+    dragon_.chargeTimer = 0.0F;
+    dragon_.chargeCooldown = 1.5F;
+    dragon_.volleyCooldown = 1.0F;
+    dragon_.facing = 1.0F;
+    dragon_.knockbackTimer = 0.0F;
+    dragon_.knockbackVelocity = 0.0F;
+    dragon_.droppedLoot = false;
+    dragonSpawned_ = true;
+}
+
 bool EnemyManager::isWalkableSpot(int x, int footY) const {
     if (x < 0 || x >= world_.width()) {
         return false;
@@ -834,6 +1083,7 @@ void EnemyManager::fillHud(rendering::HudState& hud) const {
         entry.x = projectile.position.x;
         entry.y = projectile.position.y;
         entry.radius = projectile.radius;
+        entry.isFlame = projectile.isFlame;
     }
     for (int i = projectileCount; i < rendering::kMaxEnemyProjectiles; ++i) {
         hud.enemyProjectiles[static_cast<std::size_t>(i)] = {};
@@ -855,6 +1105,20 @@ void EnemyManager::fillHud(rendering::HudState& hud) const {
     }
     for (int i = wormCount; i < rendering::kMaxWorms; ++i) {
         hud.worms[static_cast<std::size_t>(i)] = {};
+    }
+
+    hud.dragon.active = dragonActive_ && dragon_.alive();
+    if (hud.dragon.active) {
+        hud.dragon.x = dragon_.position.x;
+        hud.dragon.y = dragon_.position.y;
+        hud.dragon.halfWidth = entities::kDragonHalfWidth;
+        hud.dragon.height = entities::kDragonHeight;
+        hud.dragon.wingPhase = swoopTimer_ * 3.0F;
+        hud.dragon.facing = dragon_.facing;
+        hud.dragon.health = dragon_.health;
+        hud.dragon.maxHealth = dragon_.maxHealth;
+    } else {
+        hud.dragon = {};
     }
 }
 
