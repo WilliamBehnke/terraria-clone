@@ -931,6 +931,31 @@ private:
             SDL_RenderDrawRect(renderer_, &segRect);
         }
 
+        SDL_SetRenderDrawColor(renderer_, 90, 20, 25, 230);
+        const float footW = segW * 0.35F;
+        const float footH = segH * 0.4F;
+        const float footY = segY + segH * 0.8F;
+        const float footGap = segGap * 0.8F;
+        for (int i = 0; i < 2; ++i) {
+            const float fx = centerX + (segStartX - centerX) * dir + footGap * static_cast<float>(i + 2) * dir;
+            SDL_Rect foot{static_cast<int>(std::round(fx - footW * 0.5F)),
+                          static_cast<int>(std::round(footY)),
+                          static_cast<int>(std::round(footW)),
+                          static_cast<int>(std::round(footH))};
+            SDL_RenderFillRect(renderer_, &foot);
+        }
+
+        SDL_SetRenderDrawColor(renderer_, 120, 25, 35, 220);
+        const float wingW = segW * 3.2F;
+        const float wingH = segH * 0.55F;
+        const float wingY = segY - segH * 0.45F;
+        const float wingX = centerX + (segStartX - centerX) * dir + segGap * 2.0F * dir;
+        SDL_Rect wing{static_cast<int>(std::round(wingX - wingW * 0.5F)),
+                      static_cast<int>(std::round(wingY)),
+                      static_cast<int>(std::round(wingW)),
+                      static_cast<int>(std::round(wingH))};
+        SDL_RenderFillRect(renderer_, &wing);
+
         const int rectX =
             pixelOffsetX + static_cast<int>(std::round((left - static_cast<float>(startX)) * kTilePixels));
         const int rectY =

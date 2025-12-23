@@ -51,14 +51,14 @@ constexpr float kWormLungeVerticalBias = 0.85F;
 constexpr float kWormRecenterSpeed = 0.45F;
 constexpr float kWormSeparationRadius = 3.5F;
 constexpr float kWormSeparationStrength = 2.2F;
-constexpr float kDragonMoveSpeed = 5.4F;
+constexpr float kDragonMoveSpeed = 7.5F;
 constexpr float kDragonAttackInterval = 1.1F;
 constexpr float kDragonFireInterval = 2.0F;
 constexpr float kDragonBreathDuration = 0.9F;
 constexpr float kDragonBreathTick = 0.12F;
 constexpr float kDragonBreathSpread = 0.25F;
-constexpr float kDragonBreathSpeed = 9.5F;
-constexpr float kDragonBreathLifetime = 0.9F;
+constexpr float kDragonBreathSpeed = 11.5F;
+constexpr float kDragonBreathLifetime = 1.4F;
 constexpr float kDragonBreathRadius = 0.35F;
 constexpr int kDragonSegments = 7;
 constexpr float kDragonSegmentGapFactor = 0.455F;
@@ -69,8 +69,8 @@ constexpr float kDragonChargeDuration = 0.55F;
 constexpr float kDragonChargeCooldown = 4.2F;
 constexpr float kDragonVolleyInterval = 3.4F;
 constexpr float kDragonVolleySpread = 0.35F;
-constexpr float kDragonVolleySpeed = 11.5F;
-constexpr float kDragonVolleyLifetime = 2.8F;
+constexpr float kDragonVolleySpeed = 13.0F;
+constexpr float kDragonVolleyLifetime = 3.4F;
 constexpr float kDragonVolleyRadius = 0.42F;
 constexpr int kDragonVolleyDamage = 20;
 constexpr int kDragonContactDamage = 26;
@@ -677,9 +677,10 @@ void EnemyManager::updateDragon(float dt) {
     if (dragon_.breathTimer > 0.0F && dragon_.breathTick <= 0.0F) {
         const float headOffset = entities::kDragonHeight * kDragonSegmentGapFactor
             * (static_cast<float>(kDragonSegments - 1) * 0.5F);
-        const entities::Vec2 headPos{dragon_.position.x + dragon_.facing * headOffset,
+        const float forwardOffset = entities::kDragonHeight * 0.3F;
+        const entities::Vec2 headPos{dragon_.position.x + dragon_.facing * (headOffset + forwardOffset),
                                      dragon_.position.y - entities::kDragonHeight * kDragonSegmentYFactor
-                                         + entities::kDragonHeight * kDragonHeadYOffsetFactor};
+                                         + entities::kDragonHeight * (kDragonHeadYOffsetFactor + 0.05F)};
         entities::Vec2 dir{player_.position().x - headPos.x,
                            player_.position().y - headPos.y};
         const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
@@ -707,9 +708,10 @@ void EnemyManager::updateDragon(float dt) {
     if (dragon_.volleyCooldown <= 0.0F) {
         const float headOffset = entities::kDragonHeight * kDragonSegmentGapFactor
             * (static_cast<float>(kDragonSegments - 1) * 0.5F);
-        const entities::Vec2 headPos{dragon_.position.x + dragon_.facing * headOffset,
+        const float forwardOffset = entities::kDragonHeight * 0.3F;
+        const entities::Vec2 headPos{dragon_.position.x + dragon_.facing * (headOffset + forwardOffset),
                                      dragon_.position.y - entities::kDragonHeight * kDragonSegmentYFactor
-                                         + entities::kDragonHeight * kDragonHeadYOffsetFactor};
+                                         + entities::kDragonHeight * (kDragonHeadYOffsetFactor + 0.05F)};
         entities::Vec2 dir{player_.position().x - headPos.x,
                            player_.position().y - headPos.y};
         const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);

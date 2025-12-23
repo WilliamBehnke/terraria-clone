@@ -456,6 +456,9 @@ void Game::update(float dt) {
         player_.setPosition(spawnPosition_);
         player_.setVelocity({0.0F, 0.0F});
         player_.setOnGround(false);
+        if (entities::Dragon* dragon = enemyManager_.dragon()) {
+            dragon->health = dragon->maxHealth;
+        }
     }
 }
 
