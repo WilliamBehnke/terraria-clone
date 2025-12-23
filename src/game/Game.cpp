@@ -158,6 +158,10 @@ void Game::shutdown() {
 void Game::handleInput() {
     inputSystem_->poll();
     const auto& inputState = inputSystem_->state();
+    minimap_.handleInput(inputState, world_, player_, !chatConsole_.isOpen());
+    if (minimap_.isFullscreen()) {
+        return;
+    }
     if (menuSystem_.isGameplay() && inputState.menuBack) {
         if (chatConsole_.isOpen()) {
             chatConsole_.close();
@@ -240,6 +244,7 @@ void Game::handleInput() {
         }
         return;
     }
+    // minimap zoom handled by Minimap.
     if (inputState.consoleToggle) {
         if (chatConsole_.isOpen()) {
             if (!inputState.consoleSlash) {
@@ -383,6 +388,10 @@ void Game::clearActiveSession() {
 
 void Game::update(float dt) {
     chatConsole_.update(dt);
+    if (minimap_.isFullscreen()) {
+        minimap_.update(dt, inputSystem_->state(), world_);
+        return;
+    }
     if (!menuSystem_.isGameplay()) {
         return;
     }
@@ -1169,6 +1178,7 @@ void Game::updateHudState() {
     hudState_.perfFps = perfFps_;
     hudState_.mouseX = std::clamp(inputState.mouseX, 0, config_.windowWidth);
     hudState_.mouseY = std::clamp(inputState.mouseY, 0, config_.windowHeight);
+    minimap_.fillHud(hudState_);
     menuSystem_.fillHud(hudState_, MenuSystem::MenuData{&characterList_, &worldList_});
     chatConsole_.fillHud(hudState_);
 }

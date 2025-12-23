@@ -252,6 +252,11 @@ public:
         SDL_SetRenderDrawColor(renderer_, sky.r, sky.g, sky.b, sky.a);
         SDL_RenderClear(renderer_);
 
+        if (hud.minimapFullscreen) {
+            drawMinimap(world, player, hud);
+            SDL_RenderPresent(renderer_);
+            return;
+        }
         if (hud.menuHideWorld) {
             drawMenuOverlay(hud);
             SDL_RenderPresent(renderer_);
@@ -404,6 +409,7 @@ public:
         drawSwordSwing(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawDamageNumbers(hud, startX, startY, tilesWide, tilesTall, pixelOffsetX, pixelOffsetY);
         drawPlayer(player, startX, startY, pixelOffsetX, pixelOffsetY);
+        drawMinimap(world, player, hud);
         if (!hud.menuHideGameUi) {
             drawStatusWidgets(hud);
             drawChatOverlay(hud);
@@ -899,7 +905,6 @@ private:
         }
         const float centerX = pixelOffsetX + (entry.x - static_cast<float>(startX)) * static_cast<float>(kTilePixels);
         const float bottomY = pixelOffsetY + (entry.y - static_cast<float>(startY)) * static_cast<float>(kTilePixels);
-        const float bodyW = entry.halfWidth * 3.0F * static_cast<float>(kTilePixels);
         const float bodyH = entry.height * static_cast<float>(kTilePixels);
 
         constexpr int kDragonSegments = 7;
@@ -961,7 +966,6 @@ private:
         const int rectY =
             pixelOffsetY + static_cast<int>(std::round((top - static_cast<float>(startY)) * kTilePixels));
         const int rectW = std::max(2, static_cast<int>(std::round((right - left) * kTilePixels)));
-        const int rectH = std::max(2, static_cast<int>(std::round((bottom - top) * kTilePixels)));
 
         if (entry.maxHealth > 0) {
             const float ratio = std::clamp(static_cast<float>(entry.health) / static_cast<float>(entry.maxHealth),
@@ -1111,6 +1115,88 @@ private:
         drawNumber("FT " + std::to_string(frameMs) + "MS", perfPanel.x + 6, perfPanel.y + 22, 2, perfColor);
         drawNumber("UP " + std::to_string(updateMs) + "MS", perfPanel.x + 6, perfPanel.y + 40, 2, perfColor);
         drawNumber("RD " + std::to_string(renderMs) + "MS", perfPanel.x + 6, perfPanel.y + 58, 2, perfColor);
+    }
+
+    void drawMinimap(const world::World& world, const entities::Player& player, const HudState& hud) {
+        if (hud.menuHideGameUi && !hud.minimapFullscreen) {
+            return;
+        }
+        const int margin = 10;
+        int mapWidth = 160;
+        int mapHeight = 160;
+        if (hud.minimapFullscreen) {
+            mapWidth = config_.windowWidth;
+            mapHeight = config_.windowHeight;
+        }
+        const int x = hud.minimapFullscreen ? 0 : (config_.windowWidth - mapWidth - margin);
+        const int y = hud.minimapFullscreen ? 0 : (config_.windowHeight - mapHeight - margin);
+        SDL_Rect panel{x, y, mapWidth, mapHeight};
+        SDL_SetRenderDrawColor(renderer_, 8, 8, 12, 220);
+        SDL_RenderFillRect(renderer_, &panel);
+        SDL_SetRenderDrawColor(renderer_, 60, 60, 70, 230);
+        SDL_RenderDrawRect(renderer_, &panel);
+
+        const float fitZoom = std::max(static_cast<float>(world.width()), static_cast<float>(world.height()))
+            / std::max(1.0F, std::min(static_cast<float>(world.width()), static_cast<float>(world.height())));
+        const float zoom = std::max(std::clamp(hud.minimapZoom, 0.5F, 8.0F), fitZoom);
+        const float basePerPixelX = static_cast<float>(world.width()) / static_cast<float>(mapWidth);
+        const float basePerPixelY = static_cast<float>(world.height()) / static_cast<float>(mapHeight);
+        const float worldPerPixel = std::max(basePerPixelX, basePerPixelY) / zoom;
+        const float spanX = worldPerPixel * static_cast<float>(mapWidth);
+        const float spanY = worldPerPixel * static_cast<float>(mapHeight);
+        const float centerX = hud.minimapFullscreen ? hud.minimapCenterX : player.position().x;
+        const float centerY = hud.minimapFullscreen ? hud.minimapCenterY : player.position().y;
+        float startX = centerX - spanX * 0.5F;
+        float startY = centerY - spanY * 0.5F;
+        startX = std::clamp(startX, 0.0F, std::max(0.0F, static_cast<float>(world.width()) - spanX));
+        startY = std::clamp(startY, 0.0F, std::max(0.0F, static_cast<float>(world.height()) - spanY));
+        const int maxSamples = hud.minimapFullscreen ? 60000 : 14000;
+        const int sampleStep = std::max(1, static_cast<int>(std::ceil(std::sqrt(
+            static_cast<float>(mapWidth * mapHeight) / static_cast<float>(maxSamples)))));
+        for (int my = 0; my < mapHeight; my += sampleStep) {
+            const float sampleY = startY + static_cast<float>(my) * worldPerPixel;
+            if (sampleY < 0.0F || sampleY >= static_cast<float>(world.height())) {
+                continue;
+            }
+            const int tileY = static_cast<int>(std::floor(sampleY));
+            for (int mx = 0; mx < mapWidth; mx += sampleStep) {
+                const float sampleX = startX + static_cast<float>(mx) * worldPerPixel;
+                if (sampleX < 0.0F || sampleX >= static_cast<float>(world.width())) {
+                    continue;
+                }
+                const int tileX = static_cast<int>(std::floor(sampleX));
+                const auto& tile = world.tile(tileX, tileY);
+                if (!tile.active() || tile.type() == world::TileType::Air) {
+                    continue;
+                }
+                const SDL_Color color = TileColor(tile.type());
+                SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, 220);
+                SDL_Rect dot{x + mx, y + my, sampleStep, sampleStep};
+                SDL_RenderFillRect(renderer_, &dot);
+            }
+        }
+
+        int playerMapX = x + static_cast<int>((player.position().x - startX) / spanX * mapWidth);
+        int playerMapY = y + static_cast<int>((player.position().y - startY) / spanY * mapHeight);
+        playerMapX = std::clamp(playerMapX, x + 2, x + mapWidth - 3);
+        playerMapY = std::clamp(playerMapY, y + 2, y + mapHeight - 3);
+        SDL_SetRenderDrawColor(renderer_, 255, 220, 120, 255);
+        SDL_Rect playerDot{playerMapX - 2, playerMapY - 2, 4, 4};
+        SDL_RenderFillRect(renderer_, &playerDot);
+
+        if (hud.minimapFullscreen) {
+            const int localX = std::clamp(hud.mouseX - x, 0, mapWidth - 1);
+            const int localY = std::clamp(hud.mouseY - y, 0, mapHeight - 1);
+            const float hoverWorldX = startX + static_cast<float>(localX) / static_cast<float>(mapWidth) * spanX;
+            const float hoverWorldY = startY + static_cast<float>(localY) / static_cast<float>(mapHeight) * spanY;
+            const int tileX = std::clamp(static_cast<int>(std::floor(hoverWorldX)), 0, world.width() - 1);
+            const int tileY = std::clamp(static_cast<int>(std::floor(hoverWorldY)), 0, world.height() - 1);
+            SDL_Color textColor{210, 210, 220, 255};
+            drawNumber("X " + std::to_string(tileX), x + 8, y + 8, 2, textColor);
+            drawNumber("Y " + std::to_string(tileY), x + 8, y + 24, 2, textColor);
+            const auto& tile = world.tile(tileX, tileY);
+            drawNumber(TileName(tile.type()), x + 8, y + 40, 2, textColor);
+        }
     }
 
     void drawConsoleOverlay(const HudState& hud) {

@@ -42,6 +42,12 @@ public:
         state_.menuDown = false;
         state_.menuSelect = false;
         state_.menuBack = false;
+        state_.minimapZoomIn = false;
+        state_.minimapZoomOut = false;
+        state_.minimapToggle = false;
+        state_.minimapDrag = false;
+        state_.mouseDeltaX = 0;
+        state_.mouseDeltaY = 0;
         state_.textInput.clear();
         SDL_Event event{};
         const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
@@ -92,6 +98,15 @@ public:
                 case SDLK_BACKSPACE:
                     state_.consoleBackspace = true;
                     break;
+                case SDLK_EQUALS:
+                    state_.minimapZoomIn = true;
+                    break;
+                case SDLK_MINUS:
+                    state_.minimapZoomOut = true;
+                    break;
+                case SDLK_m:
+                    state_.minimapToggle = true;
+                    break;
                 case SDLK_LEFT:
                     state_.consoleLeft = true;
                     break;
@@ -106,6 +121,9 @@ public:
                 } else if (event.button.button == SDL_BUTTON_RIGHT) {
                     state_.inventoryRightClick = true;
                 }
+            } else if (event.type == SDL_MOUSEMOTION) {
+                state_.mouseDeltaX += event.motion.xrel;
+                state_.mouseDeltaY += event.motion.yrel;
             } else if (event.type == SDL_TEXTINPUT) {
                 if (ignoreTextInput_) {
                     ignoreTextInput_ = false;
@@ -147,6 +165,7 @@ public:
         const Uint32 buttons = SDL_GetMouseState(&state_.mouseX, &state_.mouseY);
         state_.breakHeld = (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
         state_.placeHeld = (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0;
+        state_.minimapDrag = (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
     }
 
     bool shouldQuit() const override { return quit_; }

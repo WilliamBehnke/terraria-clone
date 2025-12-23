@@ -230,6 +230,10 @@ struct HudState {
     std::size_t menuEditCursor{0};
     bool menuHideGameUi{false};
     bool menuHideWorld{false};
+    float minimapZoom{1.0F};
+    bool minimapFullscreen{false};
+    float minimapCenterX{0.0F};
+    float minimapCenterY{0.0F};
 };
 
 } // namespace terraria::rendering

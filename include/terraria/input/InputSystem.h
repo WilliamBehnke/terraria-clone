@@ -32,6 +32,12 @@ struct InputState {
     bool menuDown{false};
     bool menuSelect{false};
     bool menuBack{false};
+    bool minimapZoomIn{false};
+    bool minimapZoomOut{false};
+    bool minimapToggle{false};
+    bool minimapDrag{false};
+    int mouseDeltaX{0};
+    int mouseDeltaY{0};
     std::string textInput{};
 };
 
