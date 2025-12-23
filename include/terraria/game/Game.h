@@ -9,7 +9,6 @@
 #include "terraria/game/DamageNumberSystem.h"
 #include "terraria/game/EnemyManager.h"
 #include "terraria/game/InventorySystem.h"
-#include "terraria/game/Minimap.h"
 #include "terraria/game/MenuSystem.h"
 #include "terraria/game/PhysicsSystem.h"
 #include "terraria/game/SaveManager.h"
@@ -112,7 +111,10 @@ private:
     float bowDrawTimer_{0.0F};
     bool paused_{false};
     bool requestQuit_{false};
-    Minimap minimap_{};
+    float minimapZoom_{1.0F};
+    bool minimapFullscreen_{false};
+    float minimapCenterX_{0.0F};
+    float minimapCenterY_{0.0F};
     ChatConsole chatConsole_{};
     SaveManager saveManager_{};
     MenuSystem menuSystem_{};

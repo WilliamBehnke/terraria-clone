@@ -158,8 +158,18 @@ void Game::shutdown() {
 void Game::handleInput() {
     inputSystem_->poll();
     const auto& inputState = inputSystem_->state();
-    minimap_.handleInput(inputState, world_, player_, !chatConsole_.isOpen());
-    if (minimap_.isFullscreen()) {
+    if (inputState.minimapToggle) {
+        minimapFullscreen_ = !minimapFullscreen_;
+        minimapCenterX_ = player_.position().x;
+        minimapCenterY_ = player_.position().y;
+        const float worldW = static_cast<float>(world_.width());
+        const float worldH = static_cast<float>(world_.height());
+        if (worldW > 0.0F && worldH > 0.0F) {
+            const float fitZoom = std::max(worldW, worldH) / std::min(worldW, worldH);
+            minimapZoom_ = std::max(minimapZoom_, fitZoom);
+        }
+    }
+    if (minimapFullscreen_) {
         return;
     }
     if (menuSystem_.isGameplay() && inputState.menuBack) {
@@ -244,7 +254,17 @@ void Game::handleInput() {
         }
         return;
     }
-    // minimap zoom handled by Minimap.
+    if (!chatConsole_.isOpen()) {
+        if (inputState.minimapZoomIn) {
+            minimapZoom_ = std::min(32.0F, minimapZoom_ + 0.5F);
+        }
+        if (inputState.minimapZoomOut) {
+            minimapZoom_ = std::max(2.0F, minimapZoom_ - 0.5F);
+        }
+        const float fitZoom = std::max(static_cast<float>(world_.width()), static_cast<float>(world_.height()))
+            / std::max(1.0F, std::min(static_cast<float>(world_.width()), static_cast<float>(world_.height())));
+        minimapZoom_ = std::max(minimapZoom_, fitZoom);
+    }
     if (inputState.consoleToggle) {
         if (chatConsole_.isOpen()) {
             if (!inputState.consoleSlash) {
@@ -388,8 +408,44 @@ void Game::clearActiveSession() {
 
 void Game::update(float dt) {
     chatConsole_.update(dt);
-    if (minimap_.isFullscreen()) {
-        minimap_.update(dt, inputSystem_->state(), world_);
+    if (minimapFullscreen_) {
+        const auto& inputState = inputSystem_->state();
+        if (inputState.minimapZoomIn) {
+            minimapZoom_ = std::min(32.0F, minimapZoom_ + 0.5F);
+        }
+        if (inputState.minimapZoomOut) {
+            minimapZoom_ = std::max(2.0F, minimapZoom_ - 0.5F);
+        }
+        const float panSpeed = 220.0F;
+        minimapCenterX_ += inputState.camMoveX * panSpeed * dt;
+        minimapCenterY_ += inputState.camMoveY * panSpeed * dt;
+        if (inputState.minimapDrag) {
+            const float dragScale = 0.16F;
+            minimapCenterX_ -= static_cast<float>(inputState.mouseDeltaX) * dragScale;
+            minimapCenterY_ -= static_cast<float>(inputState.mouseDeltaY) * dragScale;
+        }
+        const float worldW = static_cast<float>(world_.width());
+        const float worldH = static_cast<float>(world_.height());
+        const float fitZoom = std::max(worldW, worldH) / std::max(1.0F, std::min(worldW, worldH));
+        minimapZoom_ = std::max(minimapZoom_, fitZoom);
+        const float zoom = minimapZoom_;
+        const float mapW = static_cast<float>(config_.windowWidth);
+        const float mapH = static_cast<float>(config_.windowHeight);
+        const float basePerPixelX = worldW / std::max(1.0F, mapW);
+        const float basePerPixelY = worldH / std::max(1.0F, mapH);
+        const float worldPerPixel = std::max(basePerPixelX, basePerPixelY) / zoom;
+        const float spanX = worldPerPixel * mapW;
+        const float spanY = worldPerPixel * mapH;
+        const float minX = spanX * 0.5F;
+        const float maxX = worldW - spanX * 0.5F;
+        const float minY = spanY * 0.5F;
+        const float maxY = worldH - spanY * 0.5F;
+        minimapCenterX_ = (minX <= maxX)
+            ? std::clamp(minimapCenterX_, minX, maxX)
+            : worldW * 0.5F;
+        minimapCenterY_ = (minY <= maxY)
+            ? std::clamp(minimapCenterY_, minY, maxY)
+            : worldH * 0.5F;
         return;
     }
     if (!menuSystem_.isGameplay()) {
@@ -1178,7 +1234,10 @@ void Game::updateHudState() {
     hudState_.perfFps = perfFps_;
     hudState_.mouseX = std::clamp(inputState.mouseX, 0, config_.windowWidth);
     hudState_.mouseY = std::clamp(inputState.mouseY, 0, config_.windowHeight);
-    minimap_.fillHud(hudState_);
+    hudState_.minimapZoom = minimapZoom_;
+    hudState_.minimapFullscreen = minimapFullscreen_;
+    hudState_.minimapCenterX = minimapCenterX_;
+    hudState_.minimapCenterY = minimapCenterY_;
     menuSystem_.fillHud(hudState_, MenuSystem::MenuData{&characterList_, &worldList_});
     chatConsole_.fillHud(hudState_);
 }

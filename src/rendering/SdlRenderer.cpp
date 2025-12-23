@@ -1138,7 +1138,7 @@ private:
 
         const float fitZoom = std::max(static_cast<float>(world.width()), static_cast<float>(world.height()))
             / std::max(1.0F, std::min(static_cast<float>(world.width()), static_cast<float>(world.height())));
-        const float zoom = std::max(std::clamp(hud.minimapZoom, 0.5F, 8.0F), fitZoom);
+        const float zoom = std::max(std::clamp(hud.minimapZoom, 2.0F, 32.0F), fitZoom);
         const float basePerPixelX = static_cast<float>(world.width()) / static_cast<float>(mapWidth);
         const float basePerPixelY = static_cast<float>(world.height()) / static_cast<float>(mapHeight);
         const float worldPerPixel = std::max(basePerPixelX, basePerPixelY) / zoom;
